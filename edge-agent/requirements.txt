@@ -1,0 +1,4 @@
+requests>=2.31.0
+wsdiscovery>=2.0.0
+onvif-zeep>=0.2.12
+pyyaml>=6.0.1

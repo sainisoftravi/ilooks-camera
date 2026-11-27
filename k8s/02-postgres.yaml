@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ilook-postgres
+  namespace: ilook-system
+spec:
+  serviceName: ilook-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ilook-postgres
+  template:
+    metadata:
+      labels:
+        app: ilook-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: ilook-secrets
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ilook-postgres
+  namespace: ilook-system
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: ilook-postgres

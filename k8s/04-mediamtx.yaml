@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ilook-media-gateway
+  namespace: ilook-system
+  labels:
+    app: ilook-media-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ilook-media-gateway
+  template:
+    metadata:
+      labels:
+        app: ilook-media-gateway
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: mediamtx
+          image: bluenviron/mediamtx:v1.9.0
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          ports:
+            # RTSP Ingestion direct hostPort
+            - containerPort: 8554
+              hostPort: 8554
+              name: rtsp-tcp
+              protocol: TCP
+            # WebRTC WHEP signaling direct hostPort
+            - containerPort: 8889
+              hostPort: 8889
+              name: whep-tcp
+              protocol: TCP
+            # WebRTC UDP ICE direct hostPort (avoids Kube-proxy UDP NAT drops)
+            - containerPort: 8189
+              hostPort: 8189
+              name: webrtc-udp
+              protocol: UDP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
+          readinessProbe:
+            tcpSocket:
+              port: 8554
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8554
+            initialDelaySeconds: 5
+            periodSeconds: 20
+      volumes:
+        - name: config-volume
+          configMap:
+            name: mediamtx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ilook-media-gateway
+  namespace: ilook-system
+spec:
+  type: ClusterIP
+  selector:
+    app: ilook-media-gateway
+  ports:
+    - name: rtsp
+      port: 8554
+      targetPort: 8554
+      protocol: TCP
+    - name: whep
+      port: 8889
+      targetPort: 8889
+      protocol: TCP
+    - name: webrtc-ice
+      port: 8189
+      targetPort: 8189
+      protocol: UDP

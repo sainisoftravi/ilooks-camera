@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ilook-edge-agent:
+    build: .
+    image: ilook/edge-agent:latest
+    container_name: ilook-edge-agent
+    restart: unless-stopped
+    # Mandatory for ONVIF UDP WS-Discovery broadcast on LAN
+    network_mode: host
+    environment:
+      - CLOUD_URL=https://ilook.labstackops.top
+      - PAIRING_CODE=${PAIRING_CODE:-}
+      - NODE_NAME=${NODE_NAME:-RaspberryPi-Edge}
+    volumes:
+      - ./data:/app/data

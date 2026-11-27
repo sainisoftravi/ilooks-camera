@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ilook-ingress
+  namespace: ilook-system
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
+spec:
+  rules:
+    # Web & API Ingress
+    - host: ilook.labstackops.top
+      http:
+        paths:
+          # API traffic routed to FastAPI backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: ilook-backend
+                port:
+                  number: 8000
+          # Frontend web dashboard
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ilook-frontend
+                port:
+                  number: 3000
+
+    # Media WHEP WebRTC Signaling over HTTPS (Port 443)
+    - host: stream.labstackops.top
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ilook-media-gateway
+                port:
+                  number: 8889
+  tls:
+    - hosts:
+        - stream.labstackops.top
+      secretName: stream-tls

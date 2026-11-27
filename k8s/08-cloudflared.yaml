@@ -1,0 +1,55 @@
+# OPTIONAL: Only deploy this if you do NOT have a Cloudflare tunnel already running on your server.
+# If you already have an existing tunnel running for other apps, IGNORE this file
+# and follow k8s/EXISTING_TUNNEL_SETUP.md instead!
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: ilook-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            # Replace with your Cloudflare Zero Trust Tunnel Token
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-tunnel-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# Cloudflare Ingress Configuration Reference (config.yml)
+# Used inside your Cloudflare Dashboard or local ~/.cloudflared/config.yml:
+#
+# tunnel: <YOUR-TUNNEL-UUID>
+# credentials-file: /etc/cloudflared/cert.json
+# ingress:
+#   - hostname: ilook.labstackops.top
+#     service: http://traefik.kube-system.svc.cluster.local:80
+#   - service: http_status:404

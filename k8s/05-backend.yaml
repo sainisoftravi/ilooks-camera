@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ilook-backend
+  namespace: ilook-system
+  labels:
+    app: ilook-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ilook-backend
+  template:
+    metadata:
+      labels:
+        app: ilook-backend
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: backend
+          image: ilook-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ilook-secrets
+                  key: DATABASE_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ilook-secrets
+                  key: SECRET_KEY
+            - name: MEDIAMTX_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ilook-secrets
+                  key: MEDIAMTX_WEBHOOK_SECRET
+            - name: MEDIAMTX_INGEST_HOST
+              value: "stream.labstackops.top"
+            - name: MEDIAMTX_INGEST_RTSP_PORT
+              value: "8554"
+            - name: MEDIAMTX_WHEP_URL
+              value: "https://stream.labstackops.top"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ilook-backend
+  namespace: ilook-system
+spec:
+  selector:
+    app: ilook-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

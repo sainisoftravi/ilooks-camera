@@ -1,0 +1,13 @@
+{
+  "node_id": "00000000-0000-0000-0000-000000000000",
+  "node_token": "EXAMPLE_NODE_TOKEN_STORED_SECURELY",
+  "cameras": [
+    {
+      "camera_id": "c1a2b3c4-0000-0000-0000-000000000000",
+      "cam_uid": "CAM_98a7bc6d5e4f3a21",
+      "name": "Entrance Gate",
+      "rtsp_source_url": "rtsp://admin:pass@192.168.1.100:554/stream1",
+      "rtsp_push_url": "rtsp://CAM_98a7bc6d5e4f3a21:secret_pass@stream.labstackops.top:8554/CAM_98a7bc6d5e4f3a21"
+    }
+  ]
+}

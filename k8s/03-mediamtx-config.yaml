@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediamtx-config
+  namespace: ilook-system
+data:
+  mediamtx.yml: |
+    ###############################################
+    # iLook Cloud Media Engine (MediaMTX ARM64)
+    ###############################################
+    logLevel: info
+    logDestinations: [stdout]
+
+    # Global HTTP Authentication Webhook
+    authMethod: http
+    authHTTPAddress: http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/auth
+    authHTTPExclude:
+      - action: api
+
+    # RTSP Ingestion Server
+    rtsp: yes
+    rtspDisable: no
+    protocols: [tcp]
+    rtspAddress: :8554
+    rtspsAddress: :8555
+    rtpAddress: :8000
+    rtcpAddress: :8001
+
+    # WebRTC / WHEP Server
+    webrtc: yes
+    webrtcDisable: no
+    webrtcAddress: :8889
+    webrtcEncryption: no
+    webrtcAllowOrigins: ['*']
+    webrtcAdditionalHosts: ['stream.labstackops.top']
+    webrtcICEUDPMuxAddress: :8189
+    webrtcICETCPMuxAddress: ""
+
+    # HLS & RTMP (Disabled in Phase 1 for maximum low-latency performance)
+    rtmp: no
+    hls: no
+    srt: no
+
+    # Dynamic Path Routing for Camera UIDs
+    paths:
+      # Match CAM_<alphanumeric_uid>
+      "~^CAM_[A-Za-z0-9_-]+$":
+        source: publisher
+        overridePublisher: yes
+        runOnReady: curl -s -X POST http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"ready","path":"$MTX_PATH"}'
+        runOnNotReady: curl -s -X POST http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"notReady","path":"$MTX_PATH"}'
+        runOnReadyRestart: yes
