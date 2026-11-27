@@ -574,10 +574,10 @@ class LocalWebHandler(BaseHTTPRequestHandler):
   </footer>
 
   <script>
-    async function scanCameras() {
+    async function scanCameras() {{
       const btn = document.getElementById("scan-btn");
       btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Scanning LAN...';
-      try {
+      try {{
         const res = await fetch("/api/scan");
         const data = await res.json();
         const results = document.getElementById("scan-results");
@@ -585,36 +585,36 @@ class LocalWebHandler(BaseHTTPRequestHandler):
         list.innerHTML = "";
         results.classList.remove("hidden");
 
-        if (!data.cameras || data.cameras.length === 0) {
+        if (!data.cameras || data.cameras.length === 0) {{
           list.innerHTML = '<div class="col-span-2 text-xs text-gray-500 p-3 bg-gray-950 rounded-xl border border-gray-800">No ONVIF cameras responded on UDP 3702. Try adding manually via IP.</div>';
-        } else {
-          data.cameras.forEach(cam => {
+        }} else {{
+          data.cameras.forEach(cam => {{
             const div = document.createElement("div");
             div.className = "p-3 bg-gray-950 border border-gray-800 rounded-xl flex items-center justify-between text-xs";
-            div.innerHTML = \`
+            div.innerHTML = `
               <div>
-                <span class="font-bold text-white block">\${cam.brand} (\${cam.ip})</span>
-                <span class="text-[10px] text-gray-500 font-mono">\${cam.default_rtsp}</span>
+                <span class="font-bold text-white block">${{cam.brand}} (${{cam.ip}})</span>
+                <span class="text-[10px] text-gray-500 font-mono">${{cam.default_rtsp}}</span>
               </div>
-              <button onclick="fillRtsp('\${cam.brand}', '\${cam.default_rtsp}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-gray-950 font-bold rounded-lg text-xs">
+              <button onclick="fillRtsp('${{cam.brand}}', '${{cam.default_rtsp}}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-gray-950 font-bold rounded-lg text-xs">
                 Use Feed
               </button>
-            \`;
+            `;
             list.appendChild(div);
-          });
-        }
-      } catch (e) {
+          }});
+        }}
+      }} catch (e) {{
         alert("Scan failed: " + e.message);
-      } finally {
+      }} finally {{
         btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Scan Local Network';
-      }
-    }
+      }}
+    }}
 
-    function fillRtsp(brand, rtsp) {
+    function fillRtsp(brand, rtsp) {{
       document.querySelector("input[name='name']").value = brand + " Camera";
       document.querySelector("input[name='rtsp']").value = rtsp;
-      window.scrollTo({ top: document.body.scrollHeight / 2, behavior: 'smooth' });
-    }
+      window.scrollTo({{ top: document.body.scrollHeight / 2, behavior: 'smooth' }});
+    }}
   </script>
 </body>
 </html>
