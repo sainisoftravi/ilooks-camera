@@ -76,11 +76,11 @@ fi
 # 4. Build Docker Images (Native ARM64)
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}--> Step 3: Building & caching ARM64 Docker images...${NC}"
-echo -e "    Pulling and caching MediaMTX (ARM64)..."
-docker pull bluenviron/mediamtx:latest
+echo -e "    Pulling and caching MediaMTX (ARM64 with FFmpeg)..."
+docker pull bluenviron/mediamtx:latest-ffmpeg
 
 echo -e "    Building Backend (FastAPI + SQLAlchemy)..."
-docker build -t ilook-backend:latest ./backend
+docker build --no-cache -t ilook-backend:latest ./backend
 
 echo -e "    Building Frontend (Next.js 14 App Router + Tailwind)..."
 docker build -t ilook-frontend:latest ./frontend
@@ -90,7 +90,7 @@ docker build -t ilook-frontend:latest ./frontend
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}--> Step 4: Importing images into K3s containerd cache...${NC}"
 if command -v k3s &> /dev/null; then
-    docker save bluenviron/mediamtx:latest | sudo k3s ctr images import -
+    docker save bluenviron/mediamtx:latest-ffmpeg | sudo k3s ctr images import -
     docker save ilook-backend:latest | sudo k3s ctr images import -
     docker save ilook-frontend:latest | sudo k3s ctr images import -
     echo -e "${GREEN}[✓] Images cached in K3s containerd.${NC}"
@@ -112,6 +112,10 @@ $KUBECTL_CMD apply -f ./k8s/04-mediamtx.yaml
 $KUBECTL_CMD apply -f ./k8s/05-backend.yaml
 $KUBECTL_CMD apply -f ./k8s/06-frontend.yaml
 $KUBECTL_CMD apply -f ./k8s/07-ingress.yaml
+
+# Delete any lingering stuck pods from previous failed rollouts
+$KUBECTL_CMD delete pod -l app=ilook-backend -n ilook-system --force --grace-period=0 2>/dev/null || true
+$KUBECTL_CMD delete pod -l app=ilook-media-gateway -n ilook-system --force --grace-period=0 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 7. Rollout Health Checks

@@ -21,7 +21,7 @@ spec:
         kubernetes.io/arch: arm64
       containers:
         - name: mediamtx
-          image: docker.io/bluenviron/mediamtx:latest
+          image: bluenviron/mediamtx:latest-ffmpeg
           imagePullPolicy: IfNotPresent
           resources:
             requests:
