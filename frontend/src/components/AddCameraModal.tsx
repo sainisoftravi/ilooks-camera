@@ -9,6 +9,7 @@ interface AddCameraModalProps {
   onClose: () => void;
   onCameraAdded: (cam: Camera) => void;
   onOpenPairEdge: () => void;
+  onOpenGuide?: () => void;
 }
 
 export default function AddCameraModal({
@@ -16,6 +17,7 @@ export default function AddCameraModal({
   onClose,
   onCameraAdded,
   onOpenPairEdge,
+  onOpenGuide,
 }: AddCameraModalProps) {
   const [tab, setTab] = useState<"direct" | "edge">("direct");
   const [name, setName] = useState("");
@@ -133,9 +135,23 @@ export default function AddCameraModal({
                   onChange={(e) => setRtspUrl(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-gray-950 border border-gray-800 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
                 />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  iLook will generate unique RTSP push credentials for this camera.
-                </p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[11px] text-gray-500">
+                    iLook will generate unique RTSP push credentials for this camera.
+                  </p>
+                  {onOpenGuide && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenGuide();
+                      }}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 font-medium underline"
+                    >
+                      RTSP Guide
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="pt-2">

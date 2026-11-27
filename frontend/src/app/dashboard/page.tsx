@@ -15,12 +15,14 @@ import {
   Trash2,
   ExternalLink,
   ChevronRight,
-  Shield
+  Shield,
+  BookOpen
 } from "lucide-react";
 import { api, Camera, User } from "@/lib/api";
 import WhepPlayer from "@/components/WhepPlayer";
 import AddCameraModal from "@/components/AddCameraModal";
 import PairEdgeModal from "@/components/PairEdgeModal";
+import UserGuideModal from "@/components/UserGuideModal";
 import AppFooter from "@/components/AppFooter";
 
 export default function DashboardPage() {
@@ -31,6 +33,7 @@ export default function DashboardPage() {
   const [gridSize, setGridSize] = useState<1 | 2 | 3>(2); // 1x1, 2x2, 3x3
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isPairModalOpen, setIsPairModalOpen] = useState(false);
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<Camera | null>(null);
 
   const fetchUserDataAndCameras = useCallback(async () => {
@@ -143,6 +146,15 @@ export default function DashboardPage() {
         {/* Action Buttons & Profile */}
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setIsGuideModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-blue-400 hover:text-blue-300 text-xs font-medium rounded-xl transition-colors"
+            title="Camera Setup Guide & RTSP Manual"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">User Guide</span>
+          </button>
+
+          <button
             onClick={() => setIsPairModalOpen(true)}
             className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-indigo-400 text-xs font-medium rounded-xl transition-colors"
           >
@@ -243,6 +255,7 @@ export default function DashboardPage() {
           setCameras((prev) => [newCam, ...prev]);
         }}
         onOpenPairEdge={() => setIsPairModalOpen(true)}
+        onOpenGuide={() => setIsGuideModalOpen(true)}
       />
 
       <PairEdgeModal
@@ -251,6 +264,13 @@ export default function DashboardPage() {
         onPairSuccess={() => {
           fetchUserDataAndCameras();
         }}
+        onOpenGuide={() => setIsGuideModalOpen(true)}
+      />
+
+      <UserGuideModal
+        isOpen={isGuideModalOpen}
+        onClose={() => setIsGuideModalOpen(false)}
+        onOpenPairModal={() => setIsPairModalOpen(true)}
       />
 
       <AppFooter />
