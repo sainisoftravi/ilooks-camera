@@ -7,6 +7,8 @@ metadata:
     app: ilook-backend
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: ilook-backend

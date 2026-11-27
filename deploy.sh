@@ -75,7 +75,10 @@ fi
 # ------------------------------------------------------------------------------
 # 4. Build Docker Images (Native ARM64)
 # ------------------------------------------------------------------------------
-echo -e "\n${BLUE}--> Step 3: Building ARM64 Docker images...${NC}"
+echo -e "\n${BLUE}--> Step 3: Building & caching ARM64 Docker images...${NC}"
+echo -e "    Pulling and caching MediaMTX (ARM64)..."
+docker pull bluenviron/mediamtx:latest
+
 echo -e "    Building Backend (FastAPI + SQLAlchemy)..."
 docker build -t ilook-backend:latest ./backend
 
@@ -87,6 +90,7 @@ docker build -t ilook-frontend:latest ./frontend
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}--> Step 4: Importing images into K3s containerd cache...${NC}"
 if command -v k3s &> /dev/null; then
+    docker save bluenviron/mediamtx:latest | sudo k3s ctr images import -
     docker save ilook-backend:latest | sudo k3s ctr images import -
     docker save ilook-frontend:latest | sudo k3s ctr images import -
     echo -e "${GREEN}[✓] Images cached in K3s containerd.${NC}"
