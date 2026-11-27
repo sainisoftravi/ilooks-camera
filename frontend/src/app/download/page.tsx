@@ -42,7 +42,7 @@ export default function DownloadPage() {
   };
 
   const winCommand = `irm ${origin}/install.ps1 | iex`;
-  const linuxCommand = `curl -sSL ${origin}/install.sh | sudo bash`;
+  const linuxCommand = `curl -sSLk ${origin}/install.sh | sudo bash`;
   const dockerCommand = `docker run -d --name ilook-edge --restart=always --network=host \\
   -v ~/.ilook-edge/recordings:/app/recordings \\
   -e CLOUD_URL="${origin}" \\

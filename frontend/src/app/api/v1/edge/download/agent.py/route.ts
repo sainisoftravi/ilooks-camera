@@ -165,6 +165,13 @@ def discover_onvif_cameras(timeout=3):
         sock.close()
     return cameras
 
+def safe_post(url, **kwargs):
+    try:
+        return requests.post(url, **kwargs)
+    except requests.exceptions.SSLError:
+        kwargs["verify"] = False
+        return requests.post(url, **kwargs)
+
 # --- 4. CORE AGENT CONTROLLER ---
 class StandaloneEdgeAgent:
     _instance = None
@@ -207,7 +214,7 @@ class StandaloneEdgeAgent:
 
         try:
             print(f"[iLooks-Connect] Claiming pairing key {self.code} from {self.cloud_url}...")
-            resp = requests.post(f"{self.cloud_url}/api/v1/edge/pair/claim", json={
+            resp = safe_post(f"{self.cloud_url}/api/v1/edge/pair/claim", json={
                 "code": self.code,
                 "node_name": os.getenv("NODE_NAME", "iLooks Edge Gateway"),
                 "version": "2.0.0"
@@ -227,9 +234,9 @@ class StandaloneEdgeAgent:
         while True:
             if self.node_token:
                 try:
-                    requests.post(f"{self.cloud_url}/api/v1/edge/heartbeat",
-                                  headers={"x-node-token": self.node_token},
-                                  timeout=5)
+                    safe_post(f"{self.cloud_url}/api/v1/edge/heartbeat",
+                              headers={"x-node-token": self.node_token},
+                              timeout=5)
                 except Exception:
                     pass
             time.sleep(30)
@@ -259,10 +266,10 @@ class StandaloneEdgeAgent:
     def register_camera(self, name, rtsp_url):
         if not self.node_token:
             raise Exception("Gateway not paired with cloud yet. Please enter pairing code.")
-        resp = requests.post(f"{self.cloud_url}/api/v1/edge/cameras/register",
-                             headers={"x-node-token": self.node_token},
-                             json={"name": name, "rtsp_source_url": rtsp_url},
-                             timeout=10)
+        resp = safe_post(f"{self.cloud_url}/api/v1/edge/cameras/register",
+                         headers={"x-node-token": self.node_token},
+                         json={"name": name, "rtsp_source_url": rtsp_url},
+                         timeout=10)
         resp.raise_for_status()
         return resp.json()
 

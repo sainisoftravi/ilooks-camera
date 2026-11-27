@@ -44,7 +44,7 @@ cd "$INSTALL_DIR"
 
 # Download latest agent engine
 echo "--> Downloading core agent engine from $CLOUD_URL..."
-curl -sSL "$CLOUD_URL/api/v1/edge/download/agent.py" -o agent.py
+curl -sSLk "$CLOUD_URL/api/v1/edge/download/agent.py" -o agent.py
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then

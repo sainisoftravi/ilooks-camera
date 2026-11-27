@@ -475,10 +475,10 @@ export default function DashboardPage() {
                       <span className="text-[11px] text-gray-400 font-medium block">Terminal 1-Liner:</span>
                       <div className="relative">
                         <pre className="p-2.5 bg-gray-950 border border-gray-800 rounded-lg font-mono text-[11px] text-indigo-300 overflow-x-auto pr-9">
-                          curl -sSL {origin}/install.sh | bash -s -- {pairingCode || "<CODE>"}
+                          curl -sSLk {origin}/install.sh | bash -s -- {pairingCode || "<CODE>"}
                         </pre>
                         <button
-                          onClick={() => copyToClipboard(`curl -sSL ${origin}/install.sh | bash -s -- ${pairingCode || "<CODE>"}`, "linux-cmd")}
+                          onClick={() => copyToClipboard(`curl -sSLk ${origin}/install.sh | bash -s -- ${pairingCode || "<CODE>"}`, "linux-cmd")}
                           className="absolute right-2 top-2 p-1 text-gray-400 hover:text-white"
                           title="Copy command"
                         >
