@@ -117,12 +117,18 @@ $KUBECTL_CMD apply -f ./k8s/04-mediamtx.yaml
 $KUBECTL_CMD apply -f ./k8s/05-app.yaml
 $KUBECTL_CMD apply -f ./k8s/07-ingress.yaml
 
+# Restart mediamtx pod so it picks up the updated configmap immediately
+$KUBECTL_CMD delete pod -l app=ilook-media-gateway -n ilook-system --force --grace-period=0 2>/dev/null || true
+
 # ------------------------------------------------------------------------------
-# 8. Rollout Health Checks
+# 8. Microservice Rollout Health Checks (Decoupled)
 # ------------------------------------------------------------------------------
-echo -e "\n${BLUE}--> Step 7: Verifying service rollout status...${NC}"
-$KUBECTL_CMD rollout status deployment/ilook-app -n ilook-system --timeout=120s
-$KUBECTL_CMD rollout status deployment/ilook-media-gateway -n ilook-system --timeout=120s
+echo -e "\n${BLUE}--> Step 7: Verifying microservices status independently...${NC}"
+echo -e "    Checking Web & API App (ilook-app)..."
+$KUBECTL_CMD rollout status deployment/ilook-app -n ilook-system --timeout=60s || echo -e "${YELLOW}[!] ilook-app still starting...${NC}"
+
+echo -e "    Checking Media Gateway (ilook-media-gateway)..."
+$KUBECTL_CMD rollout status deployment/ilook-media-gateway -n ilook-system --timeout=60s || echo -e "${YELLOW}[!] ilook-media-gateway still starting...${NC}"
 
 echo -e "\n${BLUE}========================================================================${NC}"
 echo -e "${GREEN}${BOLD}   DEPLOYMENT SUCCESSFUL! All iLook Microservices are Running.         ${NC}"

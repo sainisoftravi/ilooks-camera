@@ -19,33 +19,24 @@ data:
 
     # RTSP Ingestion Server
     rtsp: yes
-    rtspDisable: no
     protocols: [tcp]
     rtspAddress: :8554
-    rtspsAddress: :8555
-    rtpAddress: :8000
-    rtcpAddress: :8001
 
     # WebRTC / WHEP Server
     webrtc: yes
-    webrtcDisable: no
     webrtcAddress: :8889
     webrtcEncryption: no
     webrtcAllowOrigins: ['*']
     webrtcAdditionalHosts: ['stream.labstackops.top']
     webrtcICEUDPMuxAddress: :8189
-    webrtcICETCPMuxAddress: ""
 
-    # HLS & RTMP
+    # Disable unused protocols
     rtmp: no
     hls: no
     srt: no
 
-    # Dynamic Path Routing for Camera UIDs
+    # Path template for all camera streams
     paths:
-      "~^CAM_[A-Za-z0-9_-]+$":
-        source: publisher
-        overridePublisher: yes
+      all:
         runOnReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"ready","path":"$MTX_PATH"}'
         runOnNotReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"notReady","path":"$MTX_PATH"}'
-        runOnReadyRestart: yes
