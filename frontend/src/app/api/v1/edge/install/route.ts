@@ -79,7 +79,8 @@ EOF
     echo ""
     echo "=========================================================="
     echo "  [SUCCESS] iLook Edge Agent is Running in Docker!"
-    echo "  • Cloud Server : $CLOUD_URL"
+    echo "  • Local Web UI : http://localhost:8555"
+    echo "  • Cloud Portal : $CLOUD_URL/dashboard"
     echo "  • Pairing Code : $PAIRING_CODE"
     if [ -n "$CAMERA_RTSP" ]; then
         echo "  • Camera Feed  : $CAMERA_NAME ($CAMERA_RTSP)"
@@ -103,7 +104,8 @@ else
     echo ""
     echo "=========================================================="
     echo "  [SUCCESS] iLook Edge Agent is running in background!"
-    echo "  • Cloud Server : $CLOUD_URL"
+    echo "  • Local Web UI : http://localhost:8555"
+    echo "  • Cloud Portal : $CLOUD_URL/dashboard"
     echo "  • Pairing Code : $PAIRING_CODE"
     if [ -n "$CAMERA_RTSP" ]; then
         echo "  • Camera Feed  : $CAMERA_NAME ($CAMERA_RTSP)"

@@ -117,7 +117,8 @@ CMD ["python", "agent.py"]
 
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "  [SUCCESS] iLook Edge Agent is Running on Windows!" -ForegroundColor Green
-    Write-Host "  • Server: $CloudUrl" -ForegroundColor Gray
+    Write-Host "  • Local Web UI: http://localhost:8555" -ForegroundColor Cyan
+    Write-Host "  • Cloud Portal: $CloudUrl/dashboard" -ForegroundColor Gray
     Write-Host "  • Pairing Code: $PairingCode" -ForegroundColor Gray
     if ($CameraRtsp) {
         Write-Host "  • Camera Feed: $CameraName ($CameraRtsp)" -ForegroundColor Gray
