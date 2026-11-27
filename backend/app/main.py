@@ -1,11 +1,12 @@
+import time
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
 from app.routes import auth, cameras, edge, mediamtx
 
-# Auto-create tables if they don't exist
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger("uvicorn")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -13,6 +14,21 @@ app = FastAPI(
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
 )
+
+# Startup event with automatic database retry loop
+@app.on_event("startup")
+def on_startup():
+    max_retries = 30
+    delay = 2
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Successfully connected to PostgreSQL and initialized tables.")
+            return
+        except Exception as e:
+            logger.warning(f"PostgreSQL not ready yet (Attempt {attempt}/{max_retries}): {e}")
+            time.sleep(delay)
+    logger.error("Could not connect to PostgreSQL after multiple retries.")
 
 # CORS configuration
 origins = [

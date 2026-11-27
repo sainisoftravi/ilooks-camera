@@ -19,8 +19,8 @@ spec:
         kubernetes.io/arch: arm64
       containers:
         - name: backend
-          image: ilook-backend:latest
-          imagePullPolicy: IfNotPresent
+          image: docker.io/library/ilook-backend:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
               name: http
