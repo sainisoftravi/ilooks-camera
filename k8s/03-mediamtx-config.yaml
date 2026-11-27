@@ -19,7 +19,7 @@ data:
 
     # RTSP Ingestion Server
     rtsp: yes
-    protocols: [tcp]
+    rtspTransports: [tcp]
     rtspAddress: :8554
 
     # WebRTC / WHEP Server
@@ -38,5 +38,3 @@ data:
     # Path template for all camera streams
     paths:
       all:
-        runOnReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"ready","path":"$MTX_PATH"}'
-        runOnNotReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"notReady","path":"$MTX_PATH"}'
