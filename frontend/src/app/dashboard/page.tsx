@@ -163,20 +163,22 @@ export default function DashboardPage() {
           </button>
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 border border-blue-400/20">
-              <Video className="w-5 h-5" />
-            </div>
+            <img
+              src="/logo-icon.png"
+              alt="iLooks-Connect"
+              className="w-9 h-9 rounded-xl border border-emerald-500/40 object-contain shadow-md shadow-emerald-500/20"
+            />
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="font-bold text-white text-sm leading-none tracking-tight">
-                  iLook <span className="text-blue-500 font-semibold text-xs">Cloud Connect VMS</span>
+                <h1 className="font-extrabold text-white text-sm leading-none tracking-tight">
+                  iLooks<span className="text-[#10B981]">-Connect</span>
                 </h1>
                 <span className="hidden lg:inline-flex items-center gap-1 text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-2 py-0.5 rounded-full font-mono">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                   stream.labstackops.top
                 </span>
               </div>
-              <span className="text-[10px] text-gray-400 font-mono">Enterprise CCTV Management</span>
+              <span className="text-[10px] text-gray-400 tracking-wider uppercase font-semibold">ANYWHERE. ANYTIME.</span>
             </div>
           </div>
         </div>
@@ -254,9 +256,9 @@ export default function DashboardPage() {
 
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-600/25"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#10B981] hover:bg-[#059669] text-gray-950 text-xs font-bold rounded-xl transition shadow-lg shadow-emerald-500/25"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 text-gray-950" />
             <span>Add Camera</span>
           </button>
 
