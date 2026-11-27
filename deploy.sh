@@ -59,7 +59,7 @@ $KUBECTL_CMD create namespace ilook-system --dry-run=client -o yaml | $KUBECTL_C
 CERT_PATH="/etc/letsencrypt/live/stream.labstackops.top/fullchain.pem"
 KEY_PATH="/etc/letsencrypt/live/stream.labstackops.top/privkey.pem"
 
-if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+if sudo test -f "$CERT_PATH" && sudo test -f "$KEY_PATH"; then
     echo -e "    Detected Let's Encrypt certificates at ${CERT_PATH}"
     sudo k3s kubectl create secret tls stream-tls \
         --cert="$CERT_PATH" \

@@ -36,7 +36,7 @@ function getAuthHeader(): Record<string, string> {
 
 export const api = {
   // Auth
-  async signup(data: { email: string; password: str; full_name?: string }) {
+  async signup(data: { email: string; password: string; full_name?: string }) {
     const res = await fetch(`${API_BASE_URL}/auth/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -46,7 +46,7 @@ export const api = {
     return res.json();
   },
 
-  async login(data: { email: string; password: str }) {
+  async login(data: { email: string; password: string }) {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
