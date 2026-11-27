@@ -84,21 +84,16 @@ $KUBECTL_CMD delete service ilook-frontend -n ilook-system 2>/dev/null || true
 # ------------------------------------------------------------------------------
 # 5. Build Docker Image (Unified Next.js 14 Web + API)
 # ------------------------------------------------------------------------------
-echo -e "\n${BLUE}--> Step 4: Building & caching ARM64 Docker images...${NC}"
-echo -e "    Pulling and caching MediaMTX (bluenviron/mediamtx:1-ffmpeg)..."
-docker pull bluenviron/mediamtx:1-ffmpeg
-
-echo -e "    Building Unified Full-Stack App (Next.js 14 App Router)..."
+echo -e "\n${BLUE}--> Step 4: Building ARM64 Docker image for ilook-app...${NC}"
 docker build -t ilook-app:latest ./frontend
 
 # ------------------------------------------------------------------------------
 # 6. Import Images into K3s Containerd (k8s.io namespace)
 # ------------------------------------------------------------------------------
-echo -e "\n${BLUE}--> Step 5: Importing images into K3s containerd (k8s.io namespace)...${NC}"
+echo -e "\n${BLUE}--> Step 5: Caching ilook-app into K3s containerd (takes ~5-10s)...${NC}"
 if command -v k3s &> /dev/null; then
-    docker save bluenviron/mediamtx:1-ffmpeg | sudo k3s ctr -n k8s.io images import -
     docker save ilook-app:latest | sudo k3s ctr -n k8s.io images import -
-    echo -e "${GREEN}[✓] Images cached in K3s containerd (k8s.io namespace).${NC}"
+    echo -e "${GREEN}[✓] ilook-app successfully imported into K3s.${NC}"
 fi
 
 # ------------------------------------------------------------------------------
