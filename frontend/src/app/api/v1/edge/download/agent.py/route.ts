@@ -9,18 +9,72 @@ export async function GET(req: NextRequest) {
 import sys
 import json
 import time
+import socket
+import select
+import shutil
 import argparse
 import subprocess
 import threading
 import webbrowser
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import requests
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", os.path.join(os.path.dirname(__file__), "recordings"))
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-LOCAL_PORT = int(os.getenv("LOCAL_PORT", "8555"))
+LOCAL_PORT = int(os.getenv("LOCAL_PORT", "8090"))
+MAX_STORAGE_GB = int(os.getenv("MAX_STORAGE_GB", "500"))
 
+# --- 1. ZERO-CPU LOCAL LOOP RECORDER (5-MIN fMP4 SEGMENTS) ---
+class LocalLoopRecorder:
+    def __init__(self, cam_uid, name, rtsp_source):
+        self.cam_uid = cam_uid
+        self.name = name
+        self.rtsp_source = rtsp_source
+        self.running = False
+        self.process = None
+
+    def start(self):
+        self.running = True
+        t = threading.Thread(target=self._run, daemon=True)
+        t.start()
+
+    def _run(self):
+        cam_dir = os.path.join(RECORDINGS_DIR, self.cam_uid)
+        os.makedirs(cam_dir, exist_ok=True)
+        
+        while self.running:
+            today = datetime.now().strftime("%Y-%m-%d")
+            daily_dir = os.path.join(cam_dir, today)
+            os.makedirs(daily_dir, exist_ok=True)
+            output_pattern = os.path.join(daily_dir, "%H-%M-%S.mp4")
+
+            # Segmented 300s (5-minute) chunks using copy (zero CPU re-encoding)
+            cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats",
+                "-rtsp_transport", "tcp", "-i", self.rtsp_source,
+                "-c", "copy", "-map", "0",
+                "-f", "segment", "-segment_time", "300", "-reset_timestamps", "1",
+                "-strftime", "1", output_pattern
+            ]
+            try:
+                self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.process.wait()
+            except Exception:
+                time.sleep(5)
+            time.sleep(3)
+
+    def stop(self):
+        self.running = False
+        if self.process:
+            try:
+                self.process.terminate()
+            except Exception:
+                pass
+
+# --- 2. OUTBOUND CLOUD STREAM PIPELINE ---
 class StreamPipeline:
     def __init__(self, name, local_rtsp, push_url):
         self.name = name
@@ -46,10 +100,10 @@ class StreamPipeline:
                 self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                 _, stderr = self.process.communicate()
                 if self.running:
-                    print(f"[{self.name}] Stream reconnecting in {backoff}s...")
+                    print(f"[{self.name}] Reconnecting in {backoff}s...")
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 30)
-            except Exception as e:
+            except Exception:
                 time.sleep(5)
 
     def stop(self):
@@ -60,17 +114,71 @@ class StreamPipeline:
             except Exception:
                 pass
 
+# --- 3. ONVIF / WS-DISCOVERY SCANNER (239.255.255.250:3702) ---
+def discover_onvif_cameras(timeout=3):
+    WS_DISCOVERY_PAYLOAD = b'''<?xml version="1.0" encoding="utf-8"?>
+<Envelope xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns="http://www.w3.org/2003/05/soap-envelope">
+  <Header>
+    <wsa:MessageID xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing">uuid:c42337d1-12c8-479a-bf7c-6e06b9b87df3</wsa:MessageID>
+    <wsa:To xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing">urn:schemas-xmlsoap-org:ws:2005/04/discovery</wsa:To>
+    <wsa:Action xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>
+  </Header>
+  <Body>
+    <Probe xmlns="http://schemas.xmlsoap.org/ws/2005/04/discovery">
+      <Types>tds:Device</Types>
+    </Probe>
+  </Body>
+</Envelope>'''
+    cameras = []
+    seen_ips = set()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+    sock.setblocking(False)
+
+    try:
+        sock.sendto(WS_DISCOVERY_PAYLOAD, ("239.255.255.250", 3702))
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            ready = select.select([sock], [], [], 0.5)
+            if ready[0]:
+                data, addr = sock.recvfrom(4096)
+                ip = addr[0]
+                if ip not in seen_ips:
+                    seen_ips.add(ip)
+                    text = data.decode("utf-8", errors="ignore")
+                    brand = "Generic ONVIF"
+                    if "hikvision" in text.lower(): brand = "Hikvision"
+                    elif "dahua" in text.lower(): brand = "Dahua"
+                    elif "cpplus" in text.lower() or "cp plus" in text.lower(): brand = "CP Plus"
+                    elif "uniview" in text.lower(): brand = "Uniview"
+                    elif "axis" in text.lower(): brand = "Axis"
+
+                    cameras.append({
+                        "ip": ip,
+                        "brand": brand,
+                        "port": 554,
+                        "default_rtsp": f"rtsp://admin:pass@{ip}:554/Streaming/Channels/101" if brand == "Hikvision" else f"rtsp://admin:pass@{ip}:554/cam/realmonitor?channel=1&subtype=0"
+                    })
+    except Exception as e:
+        print(f"[ONVIF Discovery Error] {e}")
+    finally:
+        sock.close()
+    return cameras
+
+# --- 4. CORE AGENT CONTROLLER ---
 class StandaloneEdgeAgent:
     _instance = None
 
     def __init__(self, code=None, cloud=None):
         StandaloneEdgeAgent._instance = self
         os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(RECORDINGS_DIR, exist_ok=True)
         self.cloud_url = (cloud or os.getenv("CLOUD_URL", "${cloudUrl}")).rstrip("/")
         self.code = code or os.getenv("PAIRING_CODE")
         self.node_token = None
         self.node_id = None
         self.pipelines = {}
+        self.recorders = {}
         self.config = self.load_config()
 
     def load_config(self):
@@ -83,7 +191,7 @@ class StandaloneEdgeAgent:
                     return data
             except Exception:
                 pass
-        return {"node_id": None, "node_token": None, "cameras": []}
+        return {"node_id": None, "node_token": None, "local_recording": True, "cameras": []}
 
     def save_config(self):
         self.config["node_id"] = self.node_id
@@ -93,28 +201,26 @@ class StandaloneEdgeAgent:
 
     def pair(self):
         if self.node_token and self.node_id:
-            print(f"[iLook] Reusing existing paired node: {self.node_id}")
             return True
         if not self.code:
-            print("[iLook] Awaiting pairing code via local web UI (http://localhost:8555) or CLI...")
             return False
 
         try:
-            print(f"[iLook] Claiming pairing code {self.code} from {self.cloud_url}...")
+            print(f"[iLooks-Connect] Claiming pairing key {self.code} from {self.cloud_url}...")
             resp = requests.post(f"{self.cloud_url}/api/v1/edge/pair/claim", json={
                 "code": self.code,
-                "node_name": os.getenv("NODE_NAME", "Local Edge Node"),
-                "version": "1.0.0"
+                "node_name": os.getenv("NODE_NAME", "iLooks Edge Gateway"),
+                "version": "2.0.0"
             }, timeout=10)
             resp.raise_for_status()
             data = resp.json()
             self.node_id = data["edge_node_id"]
             self.node_token = data["node_token"]
             self.save_config()
-            print("[iLook] Pairing successful! Node credentials saved.")
+            print("[iLooks-Connect] Gateway successfully paired and linked to cloud!")
             return True
         except Exception as e:
-            print(f"[iLook] Pairing failed: {e}")
+            print(f"[iLooks-Connect] Pairing failed: {e}")
             return False
 
     def heartbeat_loop(self):
@@ -128,9 +234,31 @@ class StandaloneEdgeAgent:
                     pass
             time.sleep(30)
 
+    def storage_cleaner_loop(self):
+        """FIFO Ring Buffer Watchdog: deletes oldest recordings when disk usage > 90%"""
+        while True:
+            try:
+                total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+                usage_pct = (used / total) * 100
+                if usage_pct > 90:
+                    # Find and delete oldest files
+                    all_files = []
+                    for root, _, files in os.walk(RECORDINGS_DIR):
+                        for f in files:
+                            if f.endswith(".mp4"):
+                                p = os.path.join(root, f)
+                                all_files.append((os.path.getmtime(p), p))
+                    all_files.sort(key=lambda x: x[0])
+                    for _, p in all_files[:20]: # delete oldest 20 segments
+                        try: os.remove(p)
+                        except Exception: pass
+            except Exception:
+                pass
+            time.sleep(60)
+
     def register_camera(self, name, rtsp_url):
         if not self.node_token:
-            raise Exception("Edge node is not paired yet. Please claim your pairing code first.")
+            raise Exception("Gateway not paired with cloud yet. Please enter pairing code.")
         resp = requests.post(f"{self.cloud_url}/api/v1/edge/cameras/register",
                              headers={"x-node-token": self.node_token},
                              json={"name": name, "rtsp_source_url": rtsp_url},
@@ -147,21 +275,30 @@ class StandaloneEdgeAgent:
             "cam_uid": reg["cam_uid"],
             "name": name,
             "rtsp_source_url": rtsp_url,
-            "rtsp_push_url": reg["rtsp_push_url"]
+            "rtsp_push_url": reg["rtsp_push_url"],
+            "recording_active": True
         }
         self.config["cameras"].append(cam_info)
         self.save_config()
 
+        # 1. Start Outbound Cloud Relay
         p = StreamPipeline(name, rtsp_url, reg["rtsp_push_url"])
         self.pipelines[reg["camera_id"]] = p
         p.start()
-        print(f"[iLook] Added camera {name}: {rtsp_url} -> pushing to cloud.")
+
+        # 2. Start Local Loop Recorder (5-min chunks)
+        if self.config.get("local_recording", True):
+            rec = LocalLoopRecorder(reg["cam_uid"], name, rtsp_url)
+            self.recorders[reg["camera_id"]] = rec
+            rec.start()
+
         return cam_info
 
     def run(self):
         if self.code:
             self.pair()
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+        threading.Thread(target=self.storage_cleaner_loop, daemon=True).start()
 
         env_rtsp = os.getenv("CAMERA_RTSP")
         if env_rtsp and not any(c.get("rtsp_source_url") == env_rtsp for c in self.config.get("cameras", [])):
@@ -169,18 +306,22 @@ class StandaloneEdgeAgent:
             try:
                 self.add_camera(name, env_rtsp)
             except Exception as e:
-                print(f"[iLook] Auto-registration error: {e}")
+                print(f"[iLooks-Connect] Auto-attach camera error: {e}")
 
         for cam in self.config.get("cameras", []):
-            print(f"[iLook] Starting outbound RTSP push for {cam['name']}...")
             p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"])
             self.pipelines[cam["camera_id"]] = p
             p.start()
 
-# --- LOCAL EMBEDDED WEB DASHBOARD (http://localhost:8555) ---
+            if self.config.get("local_recording", True):
+                rec = LocalLoopRecorder(cam["cam_uid"], cam["name"], cam["rtsp_source_url"])
+                self.recorders[cam["camera_id"]] = rec
+                rec.start()
+
+# --- 5. LOCAL BROWSER SETUP WIZARD (http://localhost:8090) ---
 class LocalWebHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # Quiet logs
+        pass
 
     def do_GET(self):
         agent = StandaloneEdgeAgent._instance
@@ -191,138 +332,177 @@ class LocalWebHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            data = {
+            self.wfile.write(json.dumps({
                 "paired": bool(agent.node_token),
                 "node_id": agent.node_id,
                 "cloud_url": agent.cloud_url,
+                "recordings_path": RECORDINGS_DIR,
                 "cameras": agent.config.get("cameras", []),
                 "active_pipelines": len(agent.pipelines)
-            }
-            self.wfile.write(json.dumps(data).encode("utf-8"))
+            }).encode("utf-8"))
             return
 
-        # Main Local Web Console UI (Hik-Connect / Dahua DSS Professional Dark Style)
+        elif parsed.path == "/api/scan":
+            cameras = discover_onvif_cameras(timeout=2.5)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"cameras": cameras}).encode("utf-8"))
+            return
+
+        # HTML WIZARD (Exact Obsidian & Emerald Theme)
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>iLook Local Edge Console | Hik-Connect Edition</title>
+  <title>iLooks-Connect | Local Gateway Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    body {{ background: #0B0F19; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-    .glow-border {{ box-shadow: 0 0 15px rgba(37, 99, 235, 0.2); }}
+    body {{ background: #070A0F; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    .neon-pill {{ border: 1px solid rgba(16, 185, 129, 0.5); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }}
   </style>
 </head>
-<body class="min-h-screen flex flex-col justify-between">
-  <!-- Top Navigation Bar -->
-  <header class="bg-[#111827] border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+<body class="min-h-screen flex flex-col justify-between selection:bg-emerald-500 selection:text-black">
+  <header class="bg-[#0B0F19] border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
     <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-        <i class="fa-solid fa-video text-lg"></i>
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-gray-950 font-black shadow-lg shadow-emerald-500/25">
+        <i class="fa-solid fa-eye text-lg"></i>
       </div>
       <div>
-        <h1 class="text-base font-bold text-white flex items-center gap-2">
-          iLook Local Edge Gateway
-          <span class="text-[10px] bg-blue-950 text-blue-400 border border-blue-800 px-2 py-0.5 rounded-full font-mono uppercase">Local Console</span>
+        <h1 class="text-base font-extrabold text-white flex items-center gap-1.5">
+          iLooks<span class="text-[#10B981]">-Connect</span>
+          <span class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/80 px-2 py-0.5 rounded-full font-mono uppercase">Local VMS Agent</span>
         </h1>
-        <p class="text-xs text-gray-400">Zero-Port-Forwarding LAN & Cloud Synchronizer</p>
+        <p class="text-[10px] text-gray-400 font-semibold tracking-widest uppercase">ANYWHERE. ANYTIME.</p>
       </div>
     </div>
     <div class="flex items-center gap-3">
-      <a href="{agent.cloud_url}/dashboard" target="_blank" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl flex items-center gap-2 shadow-lg shadow-blue-600/25 transition">
-        <span>Open Cloud Portal</span>
+      <a href="{agent.cloud_url}/dashboard" target="_blank" class="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-gray-950 text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/25 transition">
+        <span>Open Cloud Video Wall</span>
         <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
       </a>
     </div>
   </header>
 
-  <!-- Main Content -->
   <main class="max-w-6xl w-full mx-auto p-6 space-y-6">
-    <!-- Status Overview Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="bg-[#111827] border border-gray-800 rounded-2xl p-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl {'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50' if agent.node_token else 'bg-amber-950/60 text-amber-400 border border-amber-800/50'} flex items-center justify-center text-xl">
+    <!-- Status Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="bg-[#101622] border border-gray-800 rounded-2xl p-4 flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl {'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60' if agent.node_token else 'bg-amber-950/80 text-amber-400 border border-amber-800/60'} flex items-center justify-center text-lg">
           <i class="fa-solid {'fa-shield-halved' if agent.node_token else 'fa-link-slash'}"></i>
         </div>
         <div>
-          <span class="text-xs text-gray-400 uppercase tracking-wider block">Cloud Link Status</span>
-          <span class="text-sm font-bold {'text-emerald-400' if agent.node_token else 'text-amber-400'}">
-            {'Connected & Synchronized' if agent.node_token else 'Pending Pairing Code'}
+          <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Cloud Uplink</span>
+          <span class="text-xs font-bold {'text-emerald-400' if agent.node_token else 'text-amber-400'}">
+            {'Synced & Online' if agent.node_token else 'Awaiting Pairing'}
           </span>
-          <span class="text-[11px] text-gray-500 block truncate font-mono">{agent.cloud_url}</span>
+          <span class="text-[10px] text-gray-500 block truncate">{agent.cloud_url}</span>
         </div>
       </div>
 
-      <div class="bg-[#111827] border border-gray-800 rounded-2xl p-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-blue-950/60 text-blue-400 border border-blue-800/50 flex items-center justify-center text-xl">
-          <i class="fa-solid fa-camera"></i>
+      <div class="bg-[#101622] border border-gray-800 rounded-2xl p-4 flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-hard-drive"></i>
         </div>
         <div>
-          <span class="text-xs text-gray-400 uppercase tracking-wider block">Local Cameras</span>
-          <span class="text-lg font-bold text-white" id="cam-count">{len(agent.config.get("cameras", []))} Configured</span>
-          <span class="text-[11px] text-gray-500 block">Streaming outbound via TLS</span>
+          <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Local NVR Storage</span>
+          <span class="text-xs font-bold text-white">5-Min fMP4 Loop</span>
+          <span class="text-[10px] text-gray-500 block truncate">{RECORDINGS_DIR}</span>
         </div>
       </div>
 
-      <div class="bg-[#111827] border border-gray-800 rounded-2xl p-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/50 flex items-center justify-center text-xl">
+      <div class="bg-[#101622] border border-gray-800 rounded-2xl p-4 flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl bg-teal-950/80 text-teal-400 border border-teal-800/60 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-video"></i>
+        </div>
+        <div>
+          <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Active Streams</span>
+          <span class="text-xs font-bold text-white">{len(agent.config.get("cameras", []))} Cameras</span>
+          <span class="text-[10px] text-emerald-400 block font-mono">0% CPU (FFmpeg Copy)</span>
+        </div>
+      </div>
+
+      <div class="bg-[#101622] border border-gray-800 rounded-2xl p-4 flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl bg-purple-950/80 text-purple-400 border border-purple-800/60 flex items-center justify-center text-lg">
           <i class="fa-solid fa-network-wired"></i>
         </div>
         <div>
-          <span class="text-xs text-gray-400 uppercase tracking-wider block">Local Web Port</span>
-          <span class="text-sm font-bold text-indigo-400 font-mono">http://localhost:{LOCAL_PORT}</span>
-          <span class="text-[11px] text-gray-500 block">LAN Access Available</span>
+          <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Local Wizard Port</span>
+          <span class="text-xs font-bold text-purple-300 font-mono">127.0.0.1:{LOCAL_PORT}</span>
+          <span class="text-[10px] text-gray-500 block">System Tray Active</span>
         </div>
       </div>
     </div>
 
-    <!-- Pairing Code Box (If Not Paired) -->
+    <!-- Pairing Code Card (If not paired) -->
     {"" if agent.node_token else f'''
-    <div class="bg-amber-950/30 border border-amber-800/60 rounded-2xl p-6 text-amber-200">
-      <h3 class="text-base font-bold text-white mb-2 flex items-center gap-2">
-        <i class="fa-solid fa-triangle-exclamation text-amber-400"></i>
-        Edge Gateway Not Claimed Yet
+    <div class="bg-[#101622] border border-amber-500/50 rounded-2xl p-6 text-amber-200 shadow-xl">
+      <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2">
+        <i class="fa-solid fa-key text-amber-400"></i> Enter Cloud Pairing Key
       </h3>
-      <p class="text-xs text-amber-300/80 mb-4">
-        Go to your cloud dashboard at <a href="{agent.cloud_url}/dashboard" target="_blank" class="underline font-semibold">{agent.cloud_url}</a>, click <b>Pair Edge Node</b>, and enter the 6-digit code below:
+      <p class="text-xs text-gray-400 mb-4">
+        Open <a href="{agent.cloud_url}/dashboard" target="_blank" class="text-emerald-400 underline font-semibold">{agent.cloud_url}</a> to get your 6-digit key.
       </p>
-      <form action="/api/claim" method="POST" class="flex gap-3 max-w-md">
-        <input type="text" name="code" placeholder="Enter 6-digit code (e.g. 123456)" required maxlength="6"
-               class="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-xl text-white font-mono text-center tracking-widest text-lg focus:outline-none focus:border-amber-400">
-        <button type="submit" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs rounded-xl transition">
+      <form action="/api/claim" method="POST" class="flex gap-3 max-w-sm">
+        <input type="text" name="code" placeholder="e.g. 650346" required maxlength="6"
+               class="flex-1 px-4 py-2.5 bg-gray-950 border border-gray-700 rounded-xl text-white font-mono text-center tracking-widest text-lg focus:outline-none focus:border-amber-400">
+        <button type="submit" class="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-gray-950 font-bold text-xs rounded-xl transition">
           Pair Gateway
         </button>
       </form>
     </div>
     '''}
 
-    <!-- Add Camera Form -->
-    <div class="bg-[#111827] border border-gray-800 rounded-2xl p-6 shadow-xl">
-      <div class="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-circle-plus text-blue-500"></i>
-          <h2 class="text-sm font-bold text-white uppercase tracking-wider">Add Local Camera (RTSP / ONVIF)</h2>
+    <!-- 1-Click ONVIF / SADP Scanner -->
+    <div class="bg-[#101622] border border-gray-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-radar text-emerald-400"></i>
+            Automatic LAN Camera Scanner (Hikvision / CP Plus / Dahua / ONVIF)
+          </h2>
+          <p class="text-xs text-gray-400">Broadcasts WS-Discovery to find all security cameras on your local PoE switch / router.</p>
         </div>
-        <span class="text-xs text-gray-400">Works with Hikvision, Dahua, CP Plus, Tapo, Reolink & Generic RTSP</span>
+        <button onclick="scanCameras()" id="scan-btn" class="px-4 py-2 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-400 text-xs font-bold rounded-xl flex items-center gap-2 transition">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <span>Scan Local Network</span>
+        </button>
+      </div>
+
+      <div id="scan-results" class="hidden space-y-2">
+        <span class="text-xs font-semibold text-gray-300 block">Discovered IP Cameras:</span>
+        <div id="scan-list" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+      </div>
+    </div>
+
+    <!-- Manual RTSP / DVR Channel Form -->
+    <div class="bg-[#101622] border border-gray-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-circle-plus text-emerald-400"></i>
+          Add Camera (Direct RTSP / DVR Channel)
+        </h2>
+        <span class="text-xs text-gray-500">Supports Hikvision Channels, Dahua & CP Plus</span>
       </div>
 
       <form action="/api/add-camera" method="POST" class="grid grid-cols-1 md:grid-cols-12 gap-4">
         <div class="md:col-span-4">
           <label class="block text-xs font-medium text-gray-400 mb-1">Camera Name</label>
-          <input type="text" name="name" placeholder="e.g. Office Camera, Front Gate" required
-                 class="w-full px-3.5 py-2 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+          <input type="text" name="name" placeholder="e.g. Reception Camera" required
+                 class="w-full px-3.5 py-2.5 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500">
         </div>
         <div class="md:col-span-6">
-          <label class="block text-xs font-medium text-gray-400 mb-1">Local RTSP Stream URL</label>
+          <label class="block text-xs font-medium text-gray-400 mb-1">RTSP Stream URL</label>
           <input type="text" name="rtsp" placeholder="rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101" required
-                 class="w-full px-3.5 py-2 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-600 font-mono focus:outline-none focus:border-blue-500">
+                 class="w-full px-3.5 py-2.5 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500">
         </div>
         <div class="md:col-span-2 flex items-end">
-          <button type="submit" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-blue-600/20 transition flex items-center justify-center gap-1.5">
-            <i class="fa-solid fa-plus text-[10px]"></i>
-            <span>Add Camera</span>
+          <button type="submit" class="w-full py-2.5 bg-[#10B981] hover:bg-[#059669] text-gray-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-check text-[10px]"></i>
+            <span>Add Feed</span>
           </button>
         </div>
       </form>
@@ -332,18 +512,18 @@ class LocalWebHandler(BaseHTTPRequestHandler):
     <div class="space-y-3">
       <div class="flex items-center justify-between">
         <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          Active Local Camera Streams ({len(agent.config.get("cameras", []))})
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          Active Cameras & Local NVR Recordings ({len(agent.config.get("cameras", []))})
         </h3>
-        <span class="text-xs text-gray-500">Streamed locally and mirrored to Cloud Portal</span>
+        <span class="text-xs text-gray-500">5-minute loop recordings stored in {RECORDINGS_DIR}</span>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {"".join([f'''
-        <div class="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-3 relative group">
+        <div class="bg-[#101622] border border-gray-800 rounded-2xl p-5 space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2.5">
-              <div class="w-8 h-8 rounded-lg bg-blue-950/80 text-blue-400 flex items-center justify-center border border-blue-800/40">
+              <div class="w-9 h-9 rounded-xl bg-emerald-950/80 text-emerald-400 flex items-center justify-center border border-emerald-800/40">
                 <i class="fa-solid fa-video text-xs"></i>
               </div>
               <div>
@@ -351,28 +531,24 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 <span class="text-[10px] text-gray-500 font-mono">UID: {c.get("cam_uid", "Local")}</span>
               </div>
             </div>
-            <span class="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live & Synced
+            <span class="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live & Recording
             </span>
           </div>
 
           <div class="space-y-1.5 text-xs">
             <div class="bg-gray-950 p-2 rounded-lg border border-gray-800/80">
-              <span class="text-[10px] text-gray-500 uppercase block font-semibold">Local Source:</span>
+              <span class="text-[10px] text-gray-500 uppercase block font-semibold">Local LAN Feed:</span>
               <span class="text-gray-300 font-mono truncate block text-[11px]">{c["rtsp_source_url"]}</span>
-            </div>
-            <div class="bg-gray-950 p-2 rounded-lg border border-gray-800/80">
-              <span class="text-[10px] text-gray-500 uppercase block font-semibold">Cloud Relay Target:</span>
-              <span class="text-blue-400 font-mono truncate block text-[11px]">{c.get("rtsp_push_url", "Cloud Ingest")}</span>
             </div>
           </div>
 
           <div class="pt-2 flex items-center justify-between border-t border-gray-800/60 text-xs">
-            <a href="{agent.cloud_url}/dashboard" target="_blank" class="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
-              <span>View on Cloud Dashboard</span>
+            <a href="{agent.cloud_url}/dashboard" target="_blank" class="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1">
+              <span>View in Cloud VMS</span>
               <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
             </a>
-            <form action="/api/delete-camera" method="POST" onsubmit="return confirm('Remove this camera feed?');">
+            <form action="/api/delete-camera" method="POST" onsubmit="return confirm('Remove this camera?');">
               <input type="hidden" name="camera_id" value="{c.get("camera_id")}">
               <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs font-medium">
                 <i class="fa-regular fa-trash-can mr-1"></i> Remove
@@ -381,11 +557,11 @@ class LocalWebHandler(BaseHTTPRequestHandler):
           </div>
         </div>
         ''' for c in agent.config.get("cameras", [])]) if agent.config.get("cameras") else '''
-        <div class="col-span-2 bg-[#111827] border border-dashed border-gray-800 rounded-2xl p-8 text-center space-y-2">
-          <i class="fa-solid fa-camera-rotate text-3xl text-gray-600 mb-2"></i>
-          <h4 class="text-sm font-semibold text-white">No Local Cameras Attached Yet</h4>
+        <div class="col-span-2 bg-[#101622] border border-dashed border-gray-800 rounded-2xl p-8 text-center space-y-2">
+          <i class="fa-solid fa-video-slash text-3xl text-gray-600 mb-2"></i>
+          <h4 class="text-sm font-semibold text-white">No Cameras Attached Yet</h4>
           <p class="text-xs text-gray-400 max-w-sm mx-auto">
-            Use the form above to add your local RTSP camera feed (e.g. from Hikvision, Dahua, or CP Plus).
+            Click <b>Scan Local Network</b> or use the form above to add your camera stream.
           </p>
         </div>
         '''}
@@ -393,9 +569,53 @@ class LocalWebHandler(BaseHTTPRequestHandler):
     </div>
   </main>
 
-  <footer class="bg-[#111827] border-t border-gray-800 p-4 text-center text-xs text-gray-500">
-    iLook Edge Gateway • Local Port {LOCAL_PORT} • Connected to <a href="{agent.cloud_url}" class="text-gray-400 hover:underline">{agent.cloud_url}</a>
+  <footer class="bg-[#0B0F19] border-t border-gray-800 p-4 text-center text-xs text-gray-500">
+    iLooks-Connect Local Gateway • Port {LOCAL_PORT} • <a href="{agent.cloud_url}" class="text-emerald-400 hover:underline">{agent.cloud_url}</a>
   </footer>
+
+  <script>
+    async function scanCameras() {
+      const btn = document.getElementById("scan-btn");
+      btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Scanning LAN...';
+      try {
+        const res = await fetch("/api/scan");
+        const data = await res.json();
+        const results = document.getElementById("scan-results");
+        const list = document.getElementById("scan-list");
+        list.innerHTML = "";
+        results.classList.remove("hidden");
+
+        if (!data.cameras || data.cameras.length === 0) {
+          list.innerHTML = '<div class="col-span-2 text-xs text-gray-500 p-3 bg-gray-950 rounded-xl border border-gray-800">No ONVIF cameras responded on UDP 3702. Try adding manually via IP.</div>';
+        } else {
+          data.cameras.forEach(cam => {
+            const div = document.createElement("div");
+            div.className = "p-3 bg-gray-950 border border-gray-800 rounded-xl flex items-center justify-between text-xs";
+            div.innerHTML = \`
+              <div>
+                <span class="font-bold text-white block">\${cam.brand} (\${cam.ip})</span>
+                <span class="text-[10px] text-gray-500 font-mono">\${cam.default_rtsp}</span>
+              </div>
+              <button onclick="fillRtsp('\${cam.brand}', '\${cam.default_rtsp}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-gray-950 font-bold rounded-lg text-xs">
+                Use Feed
+              </button>
+            \`;
+            list.appendChild(div);
+          });
+        }
+      } catch (e) {
+        alert("Scan failed: " + e.message);
+      } finally {
+        btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Scan Local Network';
+      }
+    }
+
+    function fillRtsp(brand, rtsp) {
+      document.querySelector("input[name='name']").value = brand + " Camera";
+      document.querySelector("input[name='rtsp']").value = rtsp;
+      window.scrollTo({ top: document.body.scrollHeight / 2, behavior: 'smooth' });
+    }
+  </script>
 </body>
 </html>
 """
@@ -427,7 +647,7 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 try:
                     agent.add_camera(name, rtsp)
                 except Exception as e:
-                    print(f"[iLook] Error adding camera: {e}")
+                    print(f"[iLooks-Connect] Error adding camera: {e}")
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
@@ -441,6 +661,9 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 if cam_id in agent.pipelines:
                     agent.pipelines[cam_id].stop()
                     del agent.pipelines[cam_id]
+                if cam_id in agent.recorders:
+                    agent.recorders[cam_id].stop()
+                    del agent.recorders[cam_id]
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
@@ -451,11 +674,11 @@ class LocalWebHandler(BaseHTTPRequestHandler):
 
 def run_local_server():
     server = HTTPServer(("0.0.0.0", LOCAL_PORT), LocalWebHandler)
-    print(f"==================================================================")
-    print(f"  [iLook Local Console] Embedded Web Dashboard Active!            ")
-    print(f"  • Local Web UI : http://localhost:{LOCAL_PORT}                   ")
-    print(f"  • Cloud Portal : {StandaloneEdgeAgent._instance.cloud_url}/dashboard")
-    print(f"==================================================================")
+    print("==================================================================")
+    print(f"  [iLooks-Connect] Local Gateway Running on http://127.0.0.1:{LOCAL_PORT}")
+    print(f"  • Local Setup Wizard : http://localhost:{LOCAL_PORT}")
+    print(f"  • Cloud Video Wall   : {StandaloneEdgeAgent._instance.cloud_url}/dashboard")
+    print("==================================================================")
     try:
         if os.getenv("NO_BROWSER") != "1" and sys.stdin.isatty():
             webbrowser.open(f"http://localhost:{LOCAL_PORT}")
@@ -469,7 +692,7 @@ if __name__ == "__main__":
     parser.add_argument("--cloud", help="Cloud URL")
     parser.add_argument("--rtsp", help="Local camera RTSP URL")
     parser.add_argument("--name", help="Camera name", default="Office Camera")
-    parser.add_argument("--port", help="Local web UI port", default=8555, type=int)
+    parser.add_argument("--port", help="Local web UI port", default=8090, type=int)
     args = parser.parse_args()
 
     LOCAL_PORT = args.port
@@ -480,7 +703,6 @@ if __name__ == "__main__":
 
     agent = StandaloneEdgeAgent(code=args.code, cloud=args.cloud)
     
-    # Start embedded local web console in background
     t_web = threading.Thread(target=run_local_server, daemon=True)
     t_web.start()
 

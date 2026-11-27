@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Video,
   Plus,
@@ -28,7 +29,8 @@ import {
   ChevronDown,
   ChevronLeft,
   Sliders,
-  Maximize2
+  Maximize2,
+  Download
 } from "lucide-react";
 import { api, Camera, User } from "@/lib/api";
 import WhepPlayer from "@/components/WhepPlayer";
@@ -235,6 +237,15 @@ export default function DashboardPage() {
 
         {/* Action Buttons & Profile */}
         <div className="flex items-center gap-2.5">
+          <Link
+            href="/download"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900/80 border border-emerald-500/50 text-emerald-300 hover:text-white text-xs font-semibold rounded-xl transition shadow-sm"
+            title="Download Client Agent for Windows, Linux & Docker"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Install App</span>
+          </Link>
+
           <button
             onClick={() => setIsGuideModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white text-xs font-medium rounded-xl transition"

@@ -5,7 +5,7 @@ export async function GET(req: NextRequest) {
   const proto = req.headers.get("x-forwarded-proto") || "https";
   const cloudUrl = `${proto}://${host}`;
 
-  const psScript = `# iLook Edge Agent - Native Windows Installer (No Docker Required)
+  const psScript = `# iLooks-Connect - Windows Client Agent Setup (Port 8090)
 param (
     [string]$PairingCode = "",
     [string]$CameraRtsp = "",
@@ -16,22 +16,11 @@ $CloudUrl = "${cloudUrl}"
 $InstallDir = Join-Path $HOME ".ilook-edge"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "    iLook Cloud Platform - Windows Edge Agent Setup      " -ForegroundColor Cyan
+Write-Host "   iLooks-Connect - Windows Client Agent & Local VMS     " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 if (-not $PairingCode) {
-    $PairingCode = Read-Host "Enter 6-digit Pairing Code from your iLook dashboard"
-}
-
-if (-not $CameraRtsp) {
-    Write-Host ""
-    Write-Host "Tip: You can attach your local camera RTSP URL right now." -ForegroundColor Yellow
-    Write-Host "Example: rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101" -ForegroundColor Gray
-    $CameraRtsp = Read-Host "Enter Local Camera RTSP URL (press Enter to skip)"
-    if ($CameraRtsp) {
-        $inpName = Read-Host "Enter Camera Name [Office Camera]"
-        if ($inpName) { $CameraName = $inpName }
-    }
+    $PairingCode = Read-Host "Enter 6-digit Pairing Code from your iLooks dashboard"
 }
 
 if (-not (Test-Path $InstallDir)) {
@@ -39,7 +28,7 @@ if (-not (Test-Path $InstallDir)) {
 }
 
 $agentPyPath = Join-Path $InstallDir "agent.py"
-Write-Host "--> Downloading edge agent engine from $CloudUrl..." -ForegroundColor Green
+Write-Host "--> Downloading iLooks-Connect engine from $CloudUrl..." -ForegroundColor Green
 Invoke-WebRequest -Uri "$CloudUrl/api/v1/edge/download/agent.py" -OutFile $agentPyPath -UseBasicParsing
 
 # Check if Docker is available on Windows
@@ -58,7 +47,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates iproute2 && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests
 COPY agent.py .
-CMD ["python", "agent.py"]
+EXPOSE 8090
+CMD ["python", "agent.py", "--port", "8090"]
 "@ | Set-Content -Path $dockerfilePath -Encoding UTF8
 
     Set-Location $InstallDir
@@ -72,7 +62,9 @@ CMD ["python", "agent.py"]
         "--network=host",
         "-e", "PAIRING_CODE=$PairingCode",
         "-e", "CLOUD_URL=$CloudUrl",
-        "-v", "$InstallDir/data:/app/data"
+        "-e", "LOCAL_PORT=8090",
+        "-v", "$InstallDir/data:/app/data",
+        "-v", "$InstallDir/recordings:/app/recordings"
     )
     if ($CameraRtsp) {
         $dockerArgs += @("-e", "CAMERA_RTSP=$CameraRtsp", "-e", "CAMERA_NAME=$CameraName")
@@ -81,34 +73,46 @@ CMD ["python", "agent.py"]
 
     & docker $dockerArgs
     Write-Host "==========================================================" -ForegroundColor Green
-    Write-Host "  [SUCCESS] iLook Edge Agent is Running in Windows Docker!" -ForegroundColor Green
-    Write-Host "  • Server: $CloudUrl" -ForegroundColor Gray
+    Write-Host "  [SUCCESS] iLooks-Connect is Running in Windows Docker!" -ForegroundColor Green
+    Write-Host "  • Local Setup Wizard : http://localhost:8090" -ForegroundColor Cyan
+    Write-Host "  • Cloud Video Wall   : $CloudUrl/dashboard" -ForegroundColor Gray
     Write-Host "==========================================================" -ForegroundColor Green
 } else {
-    Write-Host "--> No Docker found. Running in Native Windows Mode (Python)..." -ForegroundColor Yellow
+    Write-Host "--> Native Windows mode (Python). Checking runtime..." -ForegroundColor Yellow
     $pythonCmd = $null
     if (Get-Command "python" -ErrorAction SilentlyContinue) { $pythonCmd = "python" }
     elseif (Get-Command "python3" -ErrorAction SilentlyContinue) { $pythonCmd = "python3" }
     elseif (Get-Command "py" -ErrorAction SilentlyContinue) { $pythonCmd = "py" }
 
     if (-not $pythonCmd) {
-        Write-Host "[!] Python is not installed on this Windows PC." -ForegroundColor Red
-        Write-Host "    Please install Python 3 (with 'Add python.exe to PATH' checked) from:" -ForegroundColor Yellow
-        Write-Host "    https://www.python.org/downloads/windows/" -ForegroundColor Cyan
-        Write-Host "    Or run in PowerShell: winget install Python.Python.3.11" -ForegroundColor Cyan
-        exit 1
+        Write-Host "[!] Python 3 is not installed on this PC." -ForegroundColor Red
+        Write-Host "    Installing Python via winget (takes ~30s)..." -ForegroundColor Yellow
+        try {
+            winget install Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+            $pythonCmd = "python"
+        } catch {
+            Write-Host "Please download Python from: https://www.python.org/downloads/windows/" -ForegroundColor Cyan
+            exit 1
+        }
     }
 
-    Write-Host "--> Installing required requests library..." -ForegroundColor Green
-    & $pythonCmd -m pip install requests --quiet
+    Write-Host "--> Installing requests library..." -ForegroundColor Green
+    & $pythonCmd -m pip install requests --quiet 2>$null
 
-    if ($CameraRtsp) {
-        $env:CAMERA_RTSP = $CameraRtsp
-        $env:CAMERA_NAME = $CameraName
-    }
+    # Create Windows Startup shortcut so agent auto-starts on boot
+    try {
+        $wscriptShell = New-Object -ComObject WScript.Shell
+        $startupFolder = [Environment]::GetFolderPath("Startup")
+        $shortcut = $wscriptShell.CreateShortcut("$startupFolder\\iLooks-Agent.lnk")
+        $shortcut.TargetPath = $pythonCmd
+        $shortcut.Arguments = "$agentPyPath --code $PairingCode --cloud $CloudUrl --port 8090"
+        $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.WindowStyle = 7 # Minimized
+        $shortcut.Save()
+        Write-Host "--> Windows Auto-Start registered (runs silently on PC boot)" -ForegroundColor Green
+    } catch {}
 
-    Write-Host "--> Starting iLook Edge Agent..." -ForegroundColor Green
-    $startArgs = @($agentPyPath, "--code", $PairingCode, "--cloud", $CloudUrl)
+    $startArgs = @($agentPyPath, "--code", $PairingCode, "--cloud", $CloudUrl, "--port", "8090")
     if ($CameraRtsp) {
         $startArgs += @("--rtsp", $CameraRtsp, "--name", $CameraName)
     }
@@ -116,15 +120,15 @@ CMD ["python", "agent.py"]
     Start-Process -FilePath $pythonCmd -ArgumentList $startArgs -WindowStyle Minimized
 
     Write-Host "==========================================================" -ForegroundColor Green
-    Write-Host "  [SUCCESS] iLook Edge Agent is Running on Windows!" -ForegroundColor Green
-    Write-Host "  • Local Web UI: http://localhost:8555" -ForegroundColor Cyan
-    Write-Host "  • Cloud Portal: $CloudUrl/dashboard" -ForegroundColor Gray
-    Write-Host "  • Pairing Code: $PairingCode" -ForegroundColor Gray
-    if ($CameraRtsp) {
-        Write-Host "  • Camera Feed: $CameraName ($CameraRtsp)" -ForegroundColor Gray
-    }
+    Write-Host "  [SUCCESS] iLooks-Connect is Running on Windows!" -ForegroundColor Green
+    Write-Host "  • Local Setup Wizard : http://localhost:8090" -ForegroundColor Cyan
+    Write-Host "  • Cloud Video Wall   : $CloudUrl/dashboard" -ForegroundColor Gray
+    Write-Host "  • Auto-Start on Boot : Enabled" -ForegroundColor Gray
     Write-Host "==========================================================" -ForegroundColor Green
 }
+
+# Open the local setup wizard
+Start-Process "http://localhost:8090"
 `;
 
   return new NextResponse(psScript, {

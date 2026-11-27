@@ -15,7 +15,7 @@ CLOUD_URL="${cloudUrl}"
 INSTALL_DIR="$HOME/.ilook-edge"
 
 echo "=========================================================="
-echo "      iLook Cloud Platform - Local Edge Agent Setup      "
+echo "    iLooks-Connect - Enterprise Client Agent Installer   "
 echo "=========================================================="
 
 if [ -z "$PAIRING_CODE" ]; then
@@ -29,7 +29,7 @@ if [ -z "$CAMERA_RTSP" ]; then
         echo ""
         echo "Tip: You can attach your local camera RTSP feed right now."
         echo "Example: rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101"
-        read -p "Enter Local Camera RTSP URL (or press Enter to skip): " CAMERA_RTSP < /dev/tty
+        read -p "Enter Local Camera RTSP URL (or press Enter to scan via wizard): " CAMERA_RTSP < /dev/tty
         if [ -n "$CAMERA_RTSP" ]; then
             read -p "Enter Camera Name [Office Camera]: " INPUT_NAME < /dev/tty
             CAMERA_NAME="\${INPUT_NAME:-Office Camera}"
@@ -38,30 +38,31 @@ if [ -z "$CAMERA_RTSP" ]; then
 fi
 
 echo ""
-echo "--> Initializing iLook Edge directory: $INSTALL_DIR"
+echo "--> Initializing iLooks-Connect directory: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Download standalone agent directly from portal
-echo "--> Downloading edge agent core from portal ($CLOUD_URL)..."
+# Download latest agent engine
+echo "--> Downloading core agent engine from $CLOUD_URL..."
 curl -sSL "$CLOUD_URL/api/v1/edge/download/agent.py" -o agent.py
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then
-    echo "--> Docker detected. Building lightweight local container..."
+    echo "--> Docker detected. Building local client container..."
     cat << 'EOF' > Dockerfile
 FROM python:3.11-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates iproute2 && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests
 COPY agent.py .
-CMD ["python", "agent.py"]
+EXPOSE 8090
+CMD ["python", "agent.py", "--port", "8090"]
 EOF
 
-    echo "--> Compiling local Docker image (takes ~15s)..."
+    echo "--> Compiling local image with ONVIF & FFmpeg loop recording..."
     docker build -t ilook/edge-agent:latest . >/dev/null
 
-    echo "--> Launching iLook Edge Agent container..."
+    echo "--> Starting iLooks Agent with host networking (required for ONVIF UDP scan)..."
     docker rm -f ilook-edge 2>/dev/null || true
     
     DOCKER_ARGS=(
@@ -71,7 +72,9 @@ EOF
       --network=host
       -e PAIRING_CODE="$PAIRING_CODE"
       -e CLOUD_URL="$CLOUD_URL"
+      -e LOCAL_PORT="8090"
       -v "$INSTALL_DIR/data:/app/data"
+      -v "$INSTALL_DIR/recordings:/app/recordings"
     )
 
     if [ -n "$CAMERA_RTSP" ]; then
@@ -82,40 +85,66 @@ EOF
 
     echo ""
     echo "=========================================================="
-    echo "  [SUCCESS] iLook Edge Agent is Running in Docker!"
-    echo "  • Local Web UI : http://localhost:8555"
-    echo "  • Cloud Portal : $CLOUD_URL/dashboard"
-    echo "  • Pairing Code : $PAIRING_CODE"
-    if [ -n "$CAMERA_RTSP" ]; then
-        echo "  • Camera Feed  : $CAMERA_NAME ($CAMERA_RTSP)"
-    fi
-    echo "  • Container    : ilook-edge (docker logs -f ilook-edge)"
+    echo "  [SUCCESS] iLooks-Connect Agent is Running in Background!"
+    echo "  • Local Setup Wizard : http://localhost:8090"
+    echo "  • Cloud Video Wall   : $CLOUD_URL/dashboard"
+    echo "  • Pairing Code       : $PAIRING_CODE"
+    echo "  • Local Recordings   : $INSTALL_DIR/recordings"
+    echo "  • Container Name     : ilook-edge (docker logs -f ilook-edge)"
     echo "=========================================================="
 else
-    echo "--> No Docker found. Running in native Linux mode (Python3 + FFmpeg)..."
+    echo "--> Native Linux environment. Checking Python3 & FFmpeg..."
     if ! command -v ffmpeg &> /dev/null; then
-        echo "--> Installing FFmpeg and Python packages (requires sudo)..."
+        echo "--> Installing FFmpeg and Python tools (requires sudo)..."
         sudo apt-get update && sudo apt-get install -y ffmpeg python3-pip python3-requests || true
     fi
     pip3 install requests --quiet 2>/dev/null || pip install requests --quiet 2>/dev/null || true
-    
-    export CAMERA_RTSP="$CAMERA_RTSP"
-    export CAMERA_NAME="$CAMERA_NAME"
-    
-    echo "--> Starting standalone background agent..."
-    nohup python3 agent.py --code "$PAIRING_CODE" --cloud "$CLOUD_URL" > agent.log 2>&1 &
-    
+
+    # Check if systemd is available and user has sudo to install background service
+    if [ "$EUID" -eq 0 ] && command -v systemctl &> /dev/null; then
+        echo "--> Installing systemd service (auto-start on boot)..."
+        cat << EOF > /etc/systemd/system/ilooks-agent.service
+[Unit]
+Description=iLooks-Connect Client Agent & Local VMS
+After=network.target
+
+[Service]
+Type=simple
+User=$SUDO_USER
+WorkingDirectory=$INSTALL_DIR
+Environment="PAIRING_CODE=$PAIRING_CODE"
+Environment="CLOUD_URL=$CLOUD_URL"
+Environment="LOCAL_PORT=8090"
+ExecStart=/usr/bin/python3 $INSTALL_DIR/agent.py --code "$PAIRING_CODE" --cloud "$CLOUD_URL" --port 8090
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now ilooks-agent
+        echo "--> Service registered: systemctl status ilooks-agent"
+    else
+        export CAMERA_RTSP="$CAMERA_RTSP"
+        export CAMERA_NAME="$CAMERA_NAME"
+        nohup python3 agent.py --code "$PAIRING_CODE" --cloud "$CLOUD_URL" --port 8090 > agent.log 2>&1 &
+    fi
+
     echo ""
     echo "=========================================================="
-    echo "  [SUCCESS] iLook Edge Agent is running in background!"
-    echo "  • Local Web UI : http://localhost:8555"
-    echo "  • Cloud Portal : $CLOUD_URL/dashboard"
-    echo "  • Pairing Code : $PAIRING_CODE"
-    if [ -n "$CAMERA_RTSP" ]; then
-        echo "  • Camera Feed  : $CAMERA_NAME ($CAMERA_RTSP)"
-    fi
-    echo "  • Logs         : $INSTALL_DIR/agent.log"
+    echo "  [SUCCESS] iLooks-Connect Agent is Running in Background!"
+    echo "  • Local Setup Wizard : http://localhost:8090"
+    echo "  • Cloud Video Wall   : $CLOUD_URL/dashboard"
+    echo "  • Pairing Code       : $PAIRING_CODE"
+    echo "  • Local Recordings   : $INSTALL_DIR/recordings"
+    echo "  • Logs               : $INSTALL_DIR/agent.log"
     echo "=========================================================="
+fi
+
+# Try to open the setup wizard in local browser if display is present
+if [ -n "$DISPLAY" ] && command -v xdg-open &> /dev/null; then
+    xdg-open "http://localhost:8090" 2>/dev/null || true
 fi
 `;
 

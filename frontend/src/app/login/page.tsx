@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Lock,
   Mail,
@@ -13,7 +14,8 @@ import {
   Shield,
   Cloud,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  Download
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -271,13 +273,20 @@ export default function LoginPage() {
 
             {/* Bottom Links (Need help? & Don't have an account?) */}
             <div className="pt-6 text-center space-y-2">
-              <div>
+              <div className="flex flex-col items-center gap-1.5">
                 <a
                   href="mailto:support@labstackops.top"
                   className="text-xs text-amber-400/90 hover:text-amber-300 font-medium transition"
                 >
                   Need help?
                 </a>
+                <Link
+                  href="/download"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium transition flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Client App & Setup Guide</span>
+                </Link>
               </div>
               <div className="text-xs text-gray-400">
                 {isLogin ? (

@@ -22,6 +22,18 @@ const nextConfig = {
         source: "/api/v1/edge/agent.sh",
         destination: "/api/v1/edge/install",
       },
+      {
+        source: "/setup",
+        destination: "/download",
+      },
+      {
+        source: "/agent",
+        destination: "/download",
+      },
+      {
+        source: "/apps",
+        destination: "/download",
+      },
     ];
   },
 };
