@@ -1,5 +1,5 @@
-// API Client for iLook Backend
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ilook.labstackops.top/api/v1";
+// API Client for iLook App (Unified Next.js Full-Stack)
+const API_BASE_URL = typeof window !== "undefined" ? "/api/v1" : (process.env.NEXT_PUBLIC_API_URL || "https://ilook.labstackops.top/api/v1");
 
 export interface User {
   id: string;

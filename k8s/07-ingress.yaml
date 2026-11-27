@@ -8,24 +8,15 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
 spec:
   rules:
-    # Web & API Ingress
+    # Web Dashboard & Backend API (All handled by Next.js ilook-app)
     - host: ilook.labstackops.top
       http:
         paths:
-          # API traffic routed to FastAPI backend
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: ilook-backend
-                port:
-                  number: 8000
-          # Frontend web dashboard
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: ilook-frontend
+                name: ilook-app
                 port:
                   number: 3000
 

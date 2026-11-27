@@ -1,30 +1,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ilook-backend
+  name: ilook-app
   namespace: ilook-system
   labels:
-    app: ilook-backend
+    app: ilook-app
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: ilook-backend
+      app: ilook-app
   template:
     metadata:
       labels:
-        app: ilook-backend
+        app: ilook-app
     spec:
       nodeSelector:
         kubernetes.io/arch: arm64
       containers:
-        - name: backend
-          image: ilook-backend:latest
+        - name: app
+          image: ilook-app:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8000
+            - containerPort: 3000
               name: http
           env:
             - name: DATABASE_URL
@@ -48,35 +48,37 @@ spec:
               value: "8554"
             - name: MEDIAMTX_WHEP_URL
               value: "https://stream.labstackops.top"
+            - name: NEXT_PUBLIC_MEDIAMTX_HOST
+              value: "stream.labstackops.top"
           readinessProbe:
             httpGet:
-              path: /health
-              port: 8000
+              path: /api/health
+              port: 3000
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 10
-            periodSeconds: 15
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
             limits:
-              cpu: 1000m
-              memory: 512Mi
+              cpu: 1500m
+              memory: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ilook-backend
+  name: ilook-app
   namespace: ilook-system
 spec:
   selector:
-    app: ilook-backend
+    app: ilook-app
   ports:
     - protocol: TCP
-      port: 8000
-      targetPort: 8000
+      port: 3000
+      targetPort: 3000

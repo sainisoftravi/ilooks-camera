@@ -11,9 +11,9 @@ data:
     logLevel: info
     logDestinations: [stdout]
 
-    # Global HTTP Authentication Webhook
+    # Global HTTP Authentication Webhook routed to unified Next.js App
     authMethod: http
-    authHTTPAddress: http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/auth
+    authHTTPAddress: http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/auth
     authHTTPExclude:
       - action: api
 
@@ -36,17 +36,16 @@ data:
     webrtcICEUDPMuxAddress: :8189
     webrtcICETCPMuxAddress: ""
 
-    # HLS & RTMP (Disabled in Phase 1 for maximum low-latency performance)
+    # HLS & RTMP
     rtmp: no
     hls: no
     srt: no
 
     # Dynamic Path Routing for Camera UIDs
     paths:
-      # Match CAM_<alphanumeric_uid>
       "~^CAM_[A-Za-z0-9_-]+$":
         source: publisher
         overridePublisher: yes
-        runOnReady: curl -s -X POST http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"ready","path":"$MTX_PATH"}'
-        runOnNotReady: curl -s -X POST http://ilook-backend.ilook-system.svc.cluster.local:8000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"notReady","path":"$MTX_PATH"}'
+        runOnReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"ready","path":"$MTX_PATH"}'
+        runOnNotReady: curl -s -X POST http://ilook-app.ilook-system.svc.cluster.local:3000/api/v1/mediamtx/event -H "Content-Type: application/json" -d '{"type":"notReady","path":"$MTX_PATH"}'
         runOnReadyRestart: yes
