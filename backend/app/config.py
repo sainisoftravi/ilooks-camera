@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        "postgresql://ilook_user:ilook_secure_pass@ilook-postgres.ilook-system.svc.cluster.local:5432/ilook_db"
+        "postgresql+psycopg2://ilook_user:ilook_secure_pass@ilook-postgres.ilook-system.svc.cluster.local:5432/ilook_db"
     )
     
     # JWT Auth
