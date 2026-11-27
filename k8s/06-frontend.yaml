@@ -21,8 +21,8 @@ spec:
         kubernetes.io/arch: arm64
       containers:
         - name: frontend
-          image: docker.io/library/ilook-frontend:latest
-          imagePullPolicy: Never
+          image: ilook-frontend:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http

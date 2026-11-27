@@ -1,27 +1,19 @@
 # Multi-arch ARM64 / AMD64 Dockerfile for iLook Backend
-FROM python:3.11-slim as builder
-
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
 FROM python:3.11-slim
 
 WORKDIR /app
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
+    build-essential \
+    libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /root/.local /root/.local
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY app /app/app
 
-ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 

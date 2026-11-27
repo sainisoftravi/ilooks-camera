@@ -1,5 +1,6 @@
 import time
 import logging
+import threading
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
@@ -15,9 +16,8 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_STR}/redoc",
 )
 
-# Startup event with automatic database retry loop
-@app.on_event("startup")
-def on_startup():
+def init_db_background():
+    """Background worker to create tables without blocking FastAPI health checks."""
     max_retries = 30
     delay = 2
     for attempt in range(1, max_retries + 1):
@@ -29,6 +29,11 @@ def on_startup():
             logger.warning(f"PostgreSQL not ready yet (Attempt {attempt}/{max_retries}): {e}")
             time.sleep(delay)
     logger.error("Could not connect to PostgreSQL after multiple retries.")
+
+@app.on_event("startup")
+def on_startup():
+    t = threading.Thread(target=init_db_background, daemon=True)
+    t.start()
 
 # CORS configuration
 origins = [

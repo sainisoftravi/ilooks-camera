@@ -86,14 +86,14 @@ echo -e "    Building Frontend (Next.js 14 App Router + Tailwind)..."
 docker build -t ilook-frontend:latest ./frontend
 
 # ------------------------------------------------------------------------------
-# 5. Import Images into K3s Containerd
+# 5. Import Images into K3s Containerd (k8s.io namespace)
 # ------------------------------------------------------------------------------
-echo -e "\n${BLUE}--> Step 4: Importing images into K3s containerd cache...${NC}"
+echo -e "\n${BLUE}--> Step 4: Importing images into K3s containerd (k8s.io namespace)...${NC}"
 if command -v k3s &> /dev/null; then
-    docker save bluenviron/mediamtx:1-ffmpeg | sudo k3s ctr images import -
-    docker save ilook-backend:latest | sudo k3s ctr images import -
-    docker save ilook-frontend:latest | sudo k3s ctr images import -
-    echo -e "${GREEN}[✓] Images cached in K3s containerd.${NC}"
+    docker save bluenviron/mediamtx:1-ffmpeg | sudo k3s ctr -n k8s.io images import -
+    docker save ilook-backend:latest | sudo k3s ctr -n k8s.io images import -
+    docker save ilook-frontend:latest | sudo k3s ctr -n k8s.io images import -
+    echo -e "${GREEN}[✓] Images cached in K3s containerd (k8s.io namespace).${NC}"
 fi
 
 # ------------------------------------------------------------------------------
