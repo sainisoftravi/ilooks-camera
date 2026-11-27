@@ -21,6 +21,7 @@ import { api, Camera, User } from "@/lib/api";
 import WhepPlayer from "@/components/WhepPlayer";
 import AddCameraModal from "@/components/AddCameraModal";
 import PairEdgeModal from "@/components/PairEdgeModal";
+import AppFooter from "@/components/AppFooter";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -251,6 +252,8 @@ export default function DashboardPage() {
           fetchUserDataAndCameras();
         }}
       />
+
+      <AppFooter />
     </div>
   );
 }

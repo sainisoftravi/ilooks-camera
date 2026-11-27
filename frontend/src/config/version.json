@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "build": "20261127.1",
+  "releaseName": "iLook Genesis",
+  "releaseDate": "2026-11-27",
+  "features": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-27",
+      "title": "Phase 1 - Cloud Video Streaming & Edge Ingestion",
+      "highlights": [
+        "Ultra-low-latency WebRTC WHEP streaming (<500ms) over HTTPS",
+        "Dynamic MediaMTX multi-tenant authentication webhook (strict user isolation)",
+        "Zero-port-forwarding outbound RTSP TCP edge push",
+        "Automatic ONVIF / WS-Discovery LAN camera scanning",
+        "6-digit edge node pairing flow",
+        "Multi-camera responsive video wall (1x1, 2x2, 3x3 grid)",
+        "Real-time round-trip latency (RTT) & live status monitoring",
+        "Native ARM64 container optimization on Oracle Cloud Ampere A1 (K3s)"
+      ]
+    }
+  ]
+}

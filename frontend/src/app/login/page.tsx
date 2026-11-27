@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Video, Lock, Mail, User, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
+import AppFooter from "@/components/AppFooter";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -146,6 +147,9 @@ export default function LoginPage() {
             Protected by MediaMTX Dynamic Token Webhook & OCI Ampere A1
           </p>
         </div>
+      </div>
+      <div className="absolute bottom-0 inset-x-0">
+        <AppFooter />
       </div>
     </div>
   );
