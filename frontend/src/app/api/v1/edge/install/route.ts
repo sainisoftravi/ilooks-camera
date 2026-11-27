@@ -44,7 +44,13 @@ cd "$INSTALL_DIR"
 
 # Download latest agent engine
 echo "--> Downloading core agent engine from $CLOUD_URL..."
-curl -sSLk "$CLOUD_URL/api/v1/edge/download/agent.py" -o agent.py
+curl -sSLk "$CLOUD_URL/agent.py" -o agent.py || true
+
+# If portal returned HTML or 404, fallback to GitHub raw repository
+if [ ! -s agent.py ] || grep -q "<!DOCTYPE" agent.py 2>/dev/null; then
+    echo "--> Fetching agent core from repository mirror..."
+    curl -sSLk "https://raw.githubusercontent.com/sainisoftravi/ilooks-camera/main/frontend/public/agent.py" -o agent.py
+fi
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then

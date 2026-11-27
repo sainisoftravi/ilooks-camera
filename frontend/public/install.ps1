@@ -1,4 +1,4 @@
-﻿# iLooks-Connect - Windows Client Agent Setup (Port 8090)
+# iLooks-Connect - Windows Client Agent Setup (Port 8090)
 param (
     [string]$PairingCode = "",
     [string]$CameraRtsp = "",
