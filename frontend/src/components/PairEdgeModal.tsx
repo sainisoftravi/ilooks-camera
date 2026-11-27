@@ -11,9 +11,9 @@ import {
   Terminal,
   Download,
   BookOpen,
-  HelpCircle,
-  Layers,
-  ChevronRight
+  Monitor,
+  Cpu,
+  Layers
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -33,7 +33,7 @@ export default function PairEdgeModal({
   const [code, setCode] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [isClaimed, setIsClaimed] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"quick" | "docker" | "download">("quick");
+  const [activeOs, setActiveOs] = useState<"linux" | "windows" | "docker" | "download">("linux");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [origin, setOrigin] = useState<string>("https://ilooks.labstackops.top");
 
@@ -90,17 +90,17 @@ export default function PairEdgeModal({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const oneLineCommand = `curl -sSL ${origin}/api/v1/edge/agent.sh | bash -s -- ${code || "<CODE>"}`;
-  const oneLineWithRtsp = `curl -sSL ${origin}/api/v1/edge/agent.sh | bash -s -- ${code || "<CODE>"} "rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101" "Office Camera"`;
+  const linuxCmd = `curl -sSL ${origin}/install.sh | bash -s -- ${code || "<CODE>"}`;
+  const linuxCmdWithRtsp = `curl -sSL ${origin}/install.sh | bash -s -- ${code || "<CODE>"} "rtsp://10.10.13.50:8554/RTMP_186" "Office Camera"`;
 
-  const manualDockerCommands = `mkdir -p ~/.ilook-edge && cd ~/.ilook-edge
-curl -sSL ${origin}/api/v1/edge/download/agent.py -o agent.py
-curl -sSL ${origin}/api/v1/edge/download/Dockerfile -o Dockerfile
-docker build -t ilook/edge-agent:latest .
-docker run -d --name ilook-edge --restart=always --network=host \\
+  const windowsPowerShell = `irm ${origin}/install.ps1 | iex`;
+  const windowsPython = `curl.exe -sSL ${origin}/api/v1/edge/download/agent.py -o agent.py
+python agent.py --code ${code || "<CODE>"} --cloud ${origin} --rtsp "rtsp://10.10.13.50:8554/RTMP_186"`;
+
+  const dockerRunCmd = `docker run -d --name ilook-edge --restart=always --network=host \\
   -e PAIRING_CODE="${code || "<CODE>"}" \\
   -e CLOUD_URL="${origin}" \\
-  -e CAMERA_RTSP="rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101" \\
+  -e CAMERA_RTSP="rtsp://10.10.13.50:8554/RTMP_186" \\
   -e CAMERA_NAME="Office Camera" \\
   ilook/edge-agent:latest`;
 
@@ -114,7 +114,7 @@ docker run -d --name ilook-edge --restart=always --network=host \\
               <Server className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-semibold text-white">Pair Local Edge Agent</h3>
+              <h3 className="font-semibold text-white">Connect Local Cameras (Edge Node)</h3>
               <p className="text-xs text-gray-400">Zero-port-forwarding secure CCTV streaming</p>
             </div>
           </div>
@@ -126,40 +126,51 @@ docker run -d --name ilook-edge --restart=always --network=host \\
           </button>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="grid grid-cols-3 border-b border-gray-800 bg-gray-950/40 shrink-0">
+        {/* OS Platform Selector Tabs */}
+        <div className="grid grid-cols-4 border-b border-gray-800 bg-gray-950/40 shrink-0 text-center">
           <button
-            onClick={() => setActiveTab("quick")}
-            className={`py-2.5 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === "quick"
+            onClick={() => setActiveOs("linux")}
+            className={`py-3 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
+              activeOs === "linux"
                 ? "border-indigo-500 text-indigo-400 bg-indigo-500/5"
                 : "border-transparent text-gray-400 hover:text-gray-200"
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>1-Line Auto Install</span>
+            <span>Linux / Pi</span>
           </button>
           <button
-            onClick={() => setActiveTab("docker")}
-            className={`py-2.5 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === "docker"
-                ? "border-indigo-500 text-indigo-400 bg-indigo-500/5"
+            onClick={() => setActiveOs("windows")}
+            className={`py-3 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
+              activeOs === "windows"
+                ? "border-blue-500 text-blue-400 bg-blue-500/5"
+                : "border-transparent text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Windows</span>
+          </button>
+          <button
+            onClick={() => setActiveOs("docker")}
+            className={`py-3 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
+              activeOs === "docker"
+                ? "border-emerald-500 text-emerald-400 bg-emerald-500/5"
                 : "border-transparent text-gray-400 hover:text-gray-200"
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Manual Docker Build</span>
+            <span>Docker</span>
           </button>
           <button
-            onClick={() => setActiveTab("download")}
-            className={`py-2.5 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === "download"
-                ? "border-indigo-500 text-indigo-400 bg-indigo-500/5"
+            onClick={() => setActiveOs("download")}
+            className={`py-3 text-xs font-semibold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
+              activeOs === "download"
+                ? "border-purple-500 text-purple-400 bg-purple-500/5"
                 : "border-transparent text-gray-400 hover:text-gray-200"
             }`}
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Download Files</span>
+            <span>Downloads</span>
           </button>
         </div>
 
@@ -175,116 +186,162 @@ docker run -d --name ilook-edge --restart=always --network=host \\
               <CheckCircle2 className="w-14 h-14" />
               <h4 className="text-lg font-bold text-white">Edge Agent Paired Successfully!</h4>
               <p className="text-xs text-gray-400 max-w-sm">
-                Your local agent is connected. Registering camera feeds and launching low-latency streams...
+                Your edge agent is connected. Registering local RTSP feeds and starting ultra-low latency WebRTC stream...
               </p>
             </div>
           ) : (
             <>
               {/* Pairing Code Banner */}
               <div className="text-center">
-                <p className="text-xs text-gray-400 mb-2">
-                  Enter this 6-digit code on your local edge agent or use the command below:
-                </p>
-                <div className="inline-flex items-center justify-center font-mono text-3xl font-black tracking-widest text-indigo-400 bg-gray-950 py-3 px-8 rounded-xl border border-gray-800 shadow-inner">
+                <p className="text-xs text-gray-400 mb-1.5">Your 6-Digit Pairing Code:</p>
+                <div className="inline-flex items-center justify-center font-mono text-3xl font-black tracking-widest text-indigo-400 bg-gray-950 py-2.5 px-8 rounded-xl border border-gray-800 shadow-inner">
                   {code ? code : "------"}
                 </div>
                 <div className="flex items-center justify-center gap-1.5 mt-2 text-[11px] text-gray-500">
                   <RotateCw className="w-3 h-3 animate-spin text-indigo-400" />
-                  <span>Waiting for edge agent to claim pairing code...</span>
+                  <span>Waiting for edge agent to claim...</span>
                 </div>
               </div>
 
-              {/* TAB 1: QUICK 1-LINE INSTALL */}
-              {activeTab === "quick" && (
-                <div className="space-y-4">
-                  <div className="p-3 rounded-lg bg-indigo-950/40 border border-indigo-800/40 text-xs text-indigo-200">
-                    <p className="font-semibold text-white mb-1">Direct from Portal (No GitHub Repo Access Needed):</p>
-                    <p className="text-indigo-300/80">
-                      Run this command on your local machine (Ubuntu, Debian, Raspberry Pi). It downloads the agent from this portal, builds a lightweight local container, and starts streaming.
-                    </p>
+              {/* TAB 1: LINUX / UBUNTU / RASPBERRY PI */}
+              {activeOs === "linux" && (
+                <div className="space-y-4 text-left">
+                  <div className="p-3 rounded-lg bg-gray-950 border border-gray-800 text-xs text-gray-300">
+                    <span className="font-semibold text-white block mb-0.5">Auto-Detects Docker or Standalone Python:</span>
+                    <span className="text-gray-400">
+                      If Docker is installed, it runs a local container. <b>If NO Docker is installed</b>, it automatically runs in native Linux using Python3 and FFmpeg without any setup!
+                    </span>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs text-gray-300">
-                      <span className="font-medium">Option A: Quick Setup (Prompts for Camera RTSP in terminal):</span>
-                    </div>
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-medium text-gray-300 block">
+                      Run this 1-line command in your Linux terminal:
+                    </span>
                     <div className="relative">
                       <pre className="p-3 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-indigo-300 overflow-x-auto pr-10">
-                        {oneLineCommand}
+                        {linuxCmdWithRtsp}
                       </pre>
                       <button
-                        onClick={() => copyToClipboard(oneLineCommand, "opt-a")}
+                        onClick={() => copyToClipboard(linuxCmdWithRtsp, "linux-rtsp")}
                         className="absolute right-2 top-2 p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700"
                         title="Copy command"
                       >
-                        {copiedId === "opt-a" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedId === "linux-rtsp" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="p-3 bg-gray-950/70 border border-gray-800/80 rounded-lg text-xs text-gray-400">
+                    <p className="font-medium text-gray-300 mb-1">Or run without passing RTSP (it will prompt you in terminal):</p>
+                    <code className="text-[11px] text-indigo-400 font-mono block select-all">
+                      {linuxCmd}
+                    </code>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: WINDOWS (NO DOCKER NEEDED) */}
+              {activeOs === "windows" && (
+                <div className="space-y-4 text-left">
+                  <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-800/40 text-xs text-blue-200">
+                    <span className="font-semibold text-white block mb-0.5">Windows Setup (No Docker Required!):</span>
+                    <span className="text-blue-300/80">
+                      You can run the iLook Edge Agent on any Windows 10/11 laptop or PC using PowerShell or Python.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs text-gray-300">
-                      <span className="font-medium">Option B: Instant Setup with Camera RTSP URL:</span>
+                      <span className="font-medium">Option A: 1-Line PowerShell Command (Run as Administrator):</span>
                     </div>
                     <div className="relative">
-                      <pre className="p-3 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-indigo-300 overflow-x-auto pr-10">
-                        {oneLineWithRtsp}
+                      <pre className="p-3 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-blue-300 overflow-x-auto pr-10">
+                        {windowsPowerShell}
                       </pre>
                       <button
-                        onClick={() => copyToClipboard(oneLineWithRtsp, "opt-b")}
+                        onClick={() => copyToClipboard(windowsPowerShell, "win-ps")}
                         className="absolute right-2 top-2 p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700"
                         title="Copy command"
                       >
-                        {copiedId === "opt-b" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedId === "win-ps" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-medium text-gray-300 block">
+                      Option B: Direct Python on Windows:
+                    </span>
+                    <div className="relative">
+                      <pre className="p-3 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-gray-300 overflow-x-auto pr-10">
+                        {windowsPython}
+                      </pre>
+                      <button
+                        onClick={() => copyToClipboard(windowsPython, "win-py")}
+                        className="absolute right-2 top-2 p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700"
+                        title="Copy script"
+                      >
+                        {copiedId === "win-py" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 2: MANUAL DOCKER BUILD */}
-              {activeTab === "docker" && (
-                <div className="space-y-3">
+              {/* TAB 3: DOCKER CONTAINER */}
+              {activeOs === "docker" && (
+                <div className="space-y-3 text-left">
                   <div className="p-3 rounded-lg bg-gray-950 border border-gray-800 text-xs text-gray-300">
-                    <p className="font-semibold text-white mb-1">Zero GitHub / Zero Docker Hub Login Required:</p>
+                    <p className="font-semibold text-white mb-1">Private Docker Image (No Docker Hub Login Needed):</p>
                     <p className="text-gray-400">
-                      Because the agent is hosted securely on this server, you download the agent and Dockerfile directly from this portal and build it locally.
+                      Run the installer script, which automatically compiles the local image directly from this portal:
                     </p>
                   </div>
 
                   <div className="relative">
-                    <pre className="p-3.5 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-gray-300 overflow-x-auto pr-10 leading-relaxed">
-                      {manualDockerCommands}
+                    <pre className="p-3.5 bg-gray-950 border border-gray-800 rounded-lg font-mono text-xs text-emerald-300 overflow-x-auto pr-10 leading-relaxed">
+                      curl -sSL {origin}/install.sh | bash -s -- {code || "<CODE>"}
                     </pre>
                     <button
-                      onClick={() => copyToClipboard(manualDockerCommands, "docker-script")}
+                      onClick={() => copyToClipboard(`curl -sSL ${origin}/install.sh | bash -s -- ${code || "<CODE>"}`, "docker-cmd")}
                       className="absolute right-2.5 top-2.5 p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700"
-                      title="Copy script"
                     >
-                      {copiedId === "docker-script" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedId === "docker-cmd" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* TAB 3: DOWNLOAD FILES */}
-              {activeTab === "download" && (
-                <div className="space-y-4">
+              {/* TAB 4: DIRECT DOWNLOADS */}
+              {activeOs === "download" && (
+                <div className="space-y-4 text-left">
                   <p className="text-xs text-gray-400">
-                    Download standalone scripts and configs directly from this portal to run on any computer or Raspberry Pi:
+                    Download scripts and packages directly from this portal to run on client machines:
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <a
-                      href={`${origin}/api/v1/edge/agent.sh`}
-                      download="agent.sh"
+                      href={`${origin}/install.sh`}
+                      download="install.sh"
                       className="p-3 bg-gray-950 hover:bg-gray-850 border border-gray-800 hover:border-gray-700 rounded-xl flex items-center justify-between group transition-colors"
                     >
                       <div>
-                        <span className="font-semibold text-xs text-white block">agent.sh</span>
-                        <span className="text-[10px] text-gray-400">Automated Shell Installer</span>
+                        <span className="font-semibold text-xs text-white block">install.sh</span>
+                        <span className="text-[10px] text-gray-400">Linux / Pi Installer</span>
                       </div>
                       <Download className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+                    </a>
+
+                    <a
+                      href={`${origin}/install.ps1`}
+                      download="install.ps1"
+                      className="p-3 bg-gray-950 hover:bg-gray-850 border border-gray-800 hover:border-gray-700 rounded-xl flex items-center justify-between group transition-colors"
+                    >
+                      <div>
+                        <span className="font-semibold text-xs text-white block">install.ps1</span>
+                        <span className="text-[10px] text-gray-400">Windows PowerShell Script</span>
+                      </div>
+                      <Download className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
                     </a>
 
                     <a
@@ -294,9 +351,9 @@ docker run -d --name ilook-edge --restart=always --network=host \\
                     >
                       <div>
                         <span className="font-semibold text-xs text-white block">agent.py</span>
-                        <span className="text-[10px] text-gray-400">Standalone Python Engine</span>
+                        <span className="text-[10px] text-gray-400">Standalone Python Core</span>
                       </div>
-                      <Download className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+                      <Download className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
                     </a>
 
                     <a
@@ -306,36 +363,17 @@ docker run -d --name ilook-edge --restart=always --network=host \\
                     >
                       <div>
                         <span className="font-semibold text-xs text-white block">Dockerfile</span>
-                        <span className="text-[10px] text-gray-400">Local Docker Container</span>
+                        <span className="text-[10px] text-gray-400">Docker Recipe</span>
                       </div>
-                      <Download className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+                      <Download className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
                     </a>
-
-                    <a
-                      href={`${origin}/api/v1/edge/download/docker-compose.yml`}
-                      download="docker-compose.yml"
-                      className="p-3 bg-gray-950 hover:bg-gray-850 border border-gray-800 hover:border-gray-700 rounded-xl flex items-center justify-between group transition-colors"
-                    >
-                      <div>
-                        <span className="font-semibold text-xs text-white block">docker-compose.yml</span>
-                        <span className="text-[10px] text-gray-400">Compose Orchestration</span>
-                      </div>
-                      <Download className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-                    </a>
-                  </div>
-
-                  <div className="p-3 bg-gray-950 border border-gray-800 rounded-lg text-xs text-gray-400 space-y-1">
-                    <span className="font-semibold text-white block">To run without Docker using Python:</span>
-                    <code className="block font-mono text-[11px] text-indigo-300">
-                      python3 agent.py --code {code || "<CODE>"} --cloud {origin}
-                    </code>
                   </div>
                 </div>
               )}
 
-              {/* Help Banner at Bottom */}
+              {/* Bottom Help Link */}
               <div className="pt-2 border-t border-gray-800/80 flex items-center justify-between text-xs">
-                <span className="text-gray-400">Don&apos;t know your camera RTSP URL?</span>
+                <span className="text-gray-400">Need help finding your camera RTSP URL?</span>
                 {onOpenGuide ? (
                   <button
                     onClick={() => {

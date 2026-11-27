@@ -216,28 +216,62 @@ export default function UserGuideModal({
                 </div>
               </div>
 
-              {/* Sample Command */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-200">
-                    Sample Automated Command (Zero Configuration Needed):
-                  </span>
-                  <button
-                    onClick={() =>
-                      copyToClipboard(
-                        `curl -sSL https://ilooks.labstackops.top/api/v1/edge/agent.sh | bash -s -- <YOUR_CODE>`,
-                        "sample-cmd"
-                      )
-                    }
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                  >
-                    {copiedText === "sample-cmd" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedText === "sample-cmd" ? "Copied" : "Copy Command"}</span>
-                  </button>
+              {/* Commands for Linux & Windows Without Docker */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-white text-xs uppercase tracking-wider text-blue-400">
+                  How to Use on Linux & Windows (No Docker Required):
+                </h4>
+
+                {/* Linux No Docker */}
+                <div className="p-4 bg-gray-950 border border-gray-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white text-xs">🐧 Linux / Raspberry Pi / Ubuntu (Without Docker):</span>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `curl -sSL https://ilooks.labstackops.top/install.sh | bash -s -- <YOUR_CODE> "rtsp://YOUR_CAMERA_IP:554/stream" "Office Camera"`,
+                          "guide-linux"
+                        )
+                      }
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    >
+                      {copiedText === "guide-linux" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedText === "guide-linux" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <pre className="p-2.5 bg-gray-900 border border-gray-800 rounded font-mono text-xs text-indigo-300 overflow-x-auto">
+                    curl -sSL https://ilooks.labstackops.top/install.sh | bash -s -- &lt;PAIRING_CODE&gt; &quot;rtsp://10.10.13.50:8554/RTMP_186&quot; &quot;Office Camera&quot;
+                  </pre>
+                  <p className="text-[11px] text-gray-400">
+                    Auto-installs Python3 & FFmpeg if needed and runs silently in the background (`~/.ilook-edge/agent.log`).
+                  </p>
                 </div>
-                <pre className="p-3 bg-gray-950 border border-gray-800 rounded-xl font-mono text-xs text-blue-300 overflow-x-auto">
-                  curl -sSL https://ilooks.labstackops.top/api/v1/edge/agent.sh | bash -s -- &lt;PAIRING_CODE&gt; &quot;rtsp://admin:pass@192.168.1.50:554/Streaming/Channels/101&quot; &quot;Office Gate&quot;
-                </pre>
+
+                {/* Windows No Docker */}
+                <div className="p-4 bg-gray-950 border border-gray-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white text-xs">🪟 Windows 10 / 11 (Without Docker):</span>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `irm https://ilooks.labstackops.top/install.ps1 | iex`,
+                          "guide-win"
+                        )
+                      }
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    >
+                      {copiedText === "guide-win" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedText === "guide-win" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-300">Open PowerShell and run:</p>
+                  <pre className="p-2.5 bg-gray-900 border border-gray-800 rounded font-mono text-xs text-blue-300 overflow-x-auto">
+                    irm https://ilooks.labstackops.top/install.ps1 | iex
+                  </pre>
+                  <p className="text-[11px] text-gray-400">
+                    Or download <b>agent.py</b> from the portal and run <code className="text-blue-400 font-mono">python agent.py --code &lt;CODE&gt; --rtsp &quot;rtsp://...&quot;</code>
+                  </p>
+                </div>
               </div>
             </div>
           )}
