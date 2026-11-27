@@ -112,7 +112,8 @@ $KUBECTL_CMD apply -f ./k8s/04-mediamtx.yaml
 $KUBECTL_CMD apply -f ./k8s/05-app.yaml
 $KUBECTL_CMD apply -f ./k8s/07-ingress.yaml
 
-# Restart mediamtx pod so it picks up the updated configmap immediately
+# Restart pods so they pick up newly built code and configs immediately
+$KUBECTL_CMD delete pod -l app=ilook-app -n ilook-system --force --grace-period=0 2>/dev/null || true
 $KUBECTL_CMD delete pod -l app=ilook-media-gateway -n ilook-system --force --grace-period=0 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
