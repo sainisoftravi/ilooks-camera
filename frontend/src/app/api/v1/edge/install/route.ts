@@ -19,17 +19,21 @@ echo "      iLook Cloud Platform - Local Edge Agent Setup      "
 echo "=========================================================="
 
 if [ -z "$PAIRING_CODE" ]; then
-    read -p "Enter 6-digit Pairing Code shown on your portal: " PAIRING_CODE
+    if [ -c /dev/tty ]; then
+        read -p "Enter 6-digit Pairing Code shown on your portal: " PAIRING_CODE < /dev/tty
+    fi
 fi
 
 if [ -z "$CAMERA_RTSP" ]; then
-    echo ""
-    echo "Tip: You can attach your local camera RTSP feed right now."
-    echo "Example: rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101"
-    read -p "Enter Local Camera RTSP URL (or press Enter to skip): " CAMERA_RTSP
-    if [ -n "$CAMERA_RTSP" ]; then
-        read -p "Enter Camera Name [Office Camera]: " INPUT_NAME
-        CAMERA_NAME="\${INPUT_NAME:-Office Camera}"
+    if [ -c /dev/tty ]; then
+        echo ""
+        echo "Tip: You can attach your local camera RTSP feed right now."
+        echo "Example: rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101"
+        read -p "Enter Local Camera RTSP URL (or press Enter to skip): " CAMERA_RTSP < /dev/tty
+        if [ -n "$CAMERA_RTSP" ]; then
+            read -p "Enter Camera Name [Office Camera]: " INPUT_NAME < /dev/tty
+            CAMERA_NAME="\${INPUT_NAME:-Office Camera}"
+        fi
     fi
 fi
 
