@@ -59,14 +59,19 @@ if command -v docker &> /dev/null; then
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates iproute2 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates iproute2 tar && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests
+# Install MediaMTX for local real-time WebRTC, WHEP and HLS streaming
+RUN ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m) && \
+    if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "x86_64" ]; then MTX_ARCH="linux_amd64"; else MTX_ARCH="linux_arm64"; fi && \
+    curl -sSL -k "https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_${MTX_ARCH}.tar.gz" -o /tmp/mtx.tar.gz && \
+    tar -xzf /tmp/mtx.tar.gz -C /usr/local/bin mediamtx && rm -f /tmp/mtx.tar.gz
 COPY agent.py .
-EXPOSE 8090
+EXPOSE 8090 8556 8889 8888 9997
 CMD ["python", "agent.py", "--port", "8090"]
 EOF
 
-    echo "--> Compiling local image with ONVIF & FFmpeg loop recording..."
+    echo "--> Compiling local image with MediaMTX, ONVIF & FFmpeg..."
     docker build -t ilook/edge-agent:latest . >/dev/null
 
     echo "--> Starting iLooks Agent with host networking (required for ONVIF UDP scan)..."
@@ -100,10 +105,17 @@ EOF
     echo "  • Container Name     : ilook-edge (docker logs -f ilook-edge)"
     echo "=========================================================="
 else
-    echo "--> Native Linux environment. Checking Python3 & FFmpeg..."
+    echo "--> Native Linux environment. Checking Python3, FFmpeg & MediaMTX..."
     if ! command -v ffmpeg &> /dev/null; then
         echo "--> Installing FFmpeg and Python tools (requires sudo)..."
-        sudo apt-get update && sudo apt-get install -y ffmpeg python3-pip python3-requests || true
+        sudo apt-get update && sudo apt-get install -y ffmpeg python3-pip python3-requests curl tar || true
+    fi
+    if ! command -v mediamtx &> /dev/null; then
+        echo "--> Installing local MediaMTX engine..."
+        ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
+        if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "x86_64" ]; then MTX_ARCH="linux_amd64"; else MTX_ARCH="linux_arm64"; fi
+        sudo curl -sSL -k "https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_${MTX_ARCH}.tar.gz" -o /tmp/mtx.tar.gz && \
+        sudo tar -xzf /tmp/mtx.tar.gz -C /usr/local/bin mediamtx && sudo rm -f /tmp/mtx.tar.gz || true
     fi
     pip3 install requests --quiet 2>/dev/null || pip install requests --quiet 2>/dev/null || true
 

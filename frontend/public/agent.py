@@ -78,12 +78,77 @@ class LocalLoopRecorder:
             except Exception:
                 pass
 
-# --- 2. OUTBOUND CLOUD STREAM PIPELINE ---
+# --- 2. LOCAL MEDIAMTX EMBEDDED ENGINE (RTSP :8556, WHEP :8889, HLS :8888) ---
+class LocalMediaMTXManager:
+    def __init__(self, config_dir):
+        self.config_dir = config_dir
+        self.config_path = os.path.join(config_dir, "mediamtx_local.yml")
+        self.process = None
+        self.bin_path = shutil.which("mediamtx") or ("/usr/local/bin/mediamtx" if os.path.exists("/usr/local/bin/mediamtx") else None)
+
+    def is_available(self):
+        return bool(self.bin_path and os.path.exists(self.bin_path))
+
+    def generate_config(self, cameras):
+        lines = [
+            "logLevel: warn",
+            "logDestinations: [stdout]",
+            "# Local Ingestion & Playback Ports",
+            "rtsp: yes",
+            "rtspAddress: :8556",
+            "rtspTransports: [tcp]",
+            "webrtc: yes",
+            "webrtcAddress: :8889",
+            "webrtcAllowOrigins: ['*']",
+            "webrtcEncryption: no",
+            "hls: yes",
+            "hlsAddress: :8888",
+            "hlsAllowOrigins: ['*']",
+            "api: yes",
+            "apiAddress: :9997",
+            "paths:",
+            "  all:",
+        ]
+        for cam in cameras:
+            cam_key = cam.get("cam_uid") or cam.get("camera_id") or "live"
+            rtsp = cam.get("rtsp_source_url")
+            if rtsp:
+                lines.append(f"  {cam_key}:")
+                lines.append(f"    source: {rtsp}")
+                lines.append("    sourceOnDemand: no")
+                lines.append("    rtspTransport: tcp")
+        return "\n".join(lines) + "\n"
+
+    def restart(self, cameras):
+        if not self.is_available():
+            print("[Local MediaMTX] Binary not detected in PATH. Running with direct FFmpeg loop.")
+            return
+        os.makedirs(self.config_dir, exist_ok=True)
+        with open(self.config_path, "w") as f:
+            f.write(self.generate_config(cameras))
+
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=3)
+            except Exception:
+                try: self.process.kill()
+                except Exception: pass
+
+        cmd = [self.bin_path, self.config_path]
+        try:
+            self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("[Local MediaMTX] Active on RTSP :8556, WebRTC :8889, HLS :8888, API :9997")
+        except Exception as e:
+            print(f"[Local MediaMTX] Start error: {e}")
+
+# --- 3. OUTBOUND CLOUD STREAM PIPELINE ---
 class StreamPipeline:
-    def __init__(self, name, local_rtsp, push_url):
+    def __init__(self, name, local_rtsp, push_url, cam_uid=None):
         self.name = name
         self.local_rtsp = local_rtsp
         self.push_url = push_url
+        self.cam_uid = cam_uid
         self.running = False
         self.process = None
 
@@ -93,22 +158,28 @@ class StreamPipeline:
         t.start()
 
     def _run(self):
+        # Prefer local MediaMTX loopback if available, else direct camera RTSP
+        input_url = f"rtsp://127.0.0.1:8556/{self.cam_uid}" if (self.cam_uid and shutil.which("mediamtx")) else self.local_rtsp
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats",
-            "-rtsp_transport", "tcp", "-re", "-i", self.local_rtsp,
+            "-rtsp_transport", "tcp",
+            "-reconnect", "1", "-reconnect_at_eof", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "2",
+            "-i", input_url,
             "-c", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", self.push_url
         ]
-        backoff = 3
+        print(f"[iLooks-Connect] Outbound cloud relay started for {self.name} -> {self.push_url}")
+        backoff = 2
         while self.running:
             try:
                 self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                 _, stderr = self.process.communicate()
                 if self.running:
-                    print(f"[{self.name}] Reconnecting in {backoff}s...")
+                    print(f"[{self.name}] Stream connection dropped. Retrying in {backoff}s...")
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 30)
-            except Exception:
-                time.sleep(5)
+                    backoff = min(backoff * 2, 20)
+            except Exception as e:
+                print(f"[{self.name}] Relay error: {e}")
+                time.sleep(4)
 
     def stop(self):
         self.running = False
@@ -118,7 +189,7 @@ class StreamPipeline:
             except Exception:
                 pass
 
-# --- 3. ONVIF / WS-DISCOVERY SCANNER (239.255.255.250:3702) ---
+# --- 4. ONVIF / WS-DISCOVERY SCANNER (239.255.255.250:3702) ---
 def discover_onvif_cameras(timeout=3):
     WS_DISCOVERY_PAYLOAD = b'''<?xml version="1.0" encoding="utf-8"?>
 <Envelope xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns="http://www.w3.org/2003/05/soap-envelope">
@@ -190,6 +261,7 @@ class StandaloneEdgeAgent:
         self.node_id = None
         self.pipelines = {}
         self.recorders = {}
+        self.mtx = LocalMediaMTXManager(DATA_DIR)
         self.config = self.load_config()
 
     def load_config(self):
@@ -292,12 +364,15 @@ class StandaloneEdgeAgent:
         self.config["cameras"].append(cam_info)
         self.save_config()
 
-        # 1. Start Outbound Cloud Relay
-        p = StreamPipeline(name, rtsp_url, reg["rtsp_push_url"])
+        # 1. Update and restart local MediaMTX engine for zero-latency local playback
+        self.mtx.restart(self.config["cameras"])
+
+        # 2. Start Outbound Cloud Relay
+        p = StreamPipeline(name, rtsp_url, reg["rtsp_push_url"], cam_uid=reg["cam_uid"])
         self.pipelines[reg["camera_id"]] = p
         p.start()
 
-        # 2. Start Local Loop Recorder (5-min chunks)
+        # 3. Start Local Loop Recorder (5-min chunks)
         if self.config.get("local_recording", True):
             rec = LocalLoopRecorder(reg["cam_uid"], name, rtsp_url)
             self.recorders[reg["camera_id"]] = rec
@@ -319,8 +394,11 @@ class StandaloneEdgeAgent:
             except Exception as e:
                 print(f"[iLooks-Connect] Auto-attach camera error: {e}")
 
+        # Start Local MediaMTX for existing cameras
+        self.mtx.restart(self.config.get("cameras", []))
+
         for cam in self.config.get("cameras", []):
-            p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"])
+            p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"], cam_uid=cam.get("cam_uid"))
             self.pipelines[cam["camera_id"]] = p
             p.start()
 
@@ -370,6 +448,7 @@ class LocalWebHandler(BaseHTTPRequestHandler):
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>iLooks-Connect | Local Gateway Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     body {{ background: #070A0F; color: #E5E7EB; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
@@ -548,6 +627,17 @@ class LocalWebHandler(BaseHTTPRequestHandler):
           </div>
 
           <div class="space-y-1.5 text-xs">
+            <!-- Local Live Video Player (MediaMTX WebRTC & HLS) -->
+            <div class="relative aspect-video bg-black rounded-xl overflow-hidden border border-gray-800 shadow-inner group">
+              <video id="player-{c.get('cam_uid', 'live')}" autoplay playsinline muted controls class="w-full h-full object-contain bg-black"></video>
+              <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-500/40 text-[10px] font-bold text-emerald-400 backdrop-blur-sm pointer-events-none">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> LOCAL LIVE
+              </div>
+              <button onclick="startLocalPlayer('{c.get('cam_uid', 'live')}')" class="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-gray-900/80 hover:bg-gray-800 text-gray-300 text-xs border border-gray-700 backdrop-blur-sm" title="Reload Local Stream">
+                <i class="fa-solid fa-rotate-right"></i>
+              </button>
+            </div>
+
             <div class="bg-gray-950 p-2 rounded-lg border border-gray-800/80">
               <span class="text-[10px] text-gray-500 uppercase block font-semibold">Local LAN Feed:</span>
               <span class="text-gray-300 font-mono truncate block text-[11px]">{c["rtsp_source_url"]}</span>
@@ -626,6 +716,55 @@ class LocalWebHandler(BaseHTTPRequestHandler):
       document.querySelector("input[name='rtsp']").value = rtsp;
       window.scrollTo({{ top: document.body.scrollHeight / 2, behavior: 'smooth' }});
     }}
+
+    function startLocalPlayer(camUid) {{
+      const video = document.getElementById("player-" + camUid);
+      if (!video) return;
+
+      const host = window.location.hostname || "127.0.0.1";
+      const whepUrl = "http://" + host + ":8889/" + camUid + "/whep";
+      const hlsUrl = "http://" + host + ":8888/" + camUid + "/index.m3u8";
+
+      // 1. Ultra-low-latency WebRTC WHEP negotiation
+      const pc = new RTCPeerConnection();
+      pc.addTransceiver('video', {{ direction: 'recvonly' }});
+      pc.addTransceiver('audio', {{ direction: 'recvonly' }});
+      pc.ontrack = (ev) => {{
+        if (ev.streams[0]) {{
+          video.srcObject = ev.streams[0];
+        }}
+      }};
+
+      pc.createOffer().then(offer => {{
+        pc.setLocalDescription(offer);
+        return fetch(whepUrl, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/sdp" }},
+          body: offer.sdp
+        }});
+      }}).then(res => {{
+        if (!res.ok) throw new Error("WHEP error " + res.status);
+        return res.text();
+      }}).then(sdp => {{
+        pc.setRemoteDescription({{ type: 'answer', sdp: sdp }});
+      }}).catch(() => {{
+        // 2. Universal HLS Fallback
+        if (window.Hls && Hls.isSupported()) {{
+          const hls = new Hls({{ enableWorker: true, lowLatencyMode: true }});
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+          video.src = hlsUrl;
+        }}
+      }});
+    }}
+
+    document.addEventListener("DOMContentLoaded", () => {{
+      document.querySelectorAll("video[id^='player-']").forEach(v => {{
+        const uid = v.id.replace("player-", "");
+        startLocalPlayer(uid);
+      }});
+    }});
   </script>
 </body>
 </html>
@@ -675,6 +814,7 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 if cam_id in agent.recorders:
                     agent.recorders[cam_id].stop()
                     del agent.recorders[cam_id]
+                agent.mtx.restart(agent.config["cameras"])
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()

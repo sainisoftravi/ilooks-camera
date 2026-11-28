@@ -25,7 +25,8 @@ export async function GET(
 
   const cam = result.rows[0];
   const streamToken = createStreamPlaybackToken(userId, cam.cam_uid);
-  const whepUrl = `${WHEP_BASE}/${cam.cam_uid}/whep?token=${streamToken}`;
+  // Route WHEP through unified Next.js API proxy to guarantee valid SSL, zero CORS, and zero mixed-content issues
+  const whepUrl = `/api/v1/whep/${cam.cam_uid}/whep?token=${streamToken}`;
 
   return NextResponse.json({
     cam_uid: cam.cam_uid,

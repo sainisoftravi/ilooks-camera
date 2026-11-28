@@ -46,6 +46,8 @@ spec:
               value: "stream.labstackops.top"
             - name: MEDIAMTX_INGEST_RTSP_PORT
               value: "8554"
+            - name: MEDIAMTX_INTERNAL_URL
+              value: "http://ilook-media-gateway.ilook-system.svc.cluster.local:8889"
             - name: MEDIAMTX_WHEP_URL
               value: "https://stream.labstackops.top"
             - name: NEXT_PUBLIC_MEDIAMTX_HOST
