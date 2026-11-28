@@ -43,7 +43,6 @@ spec:
               protocol: TCP
             # HLS HTTP streaming port
             - containerPort: 8888
-              hostPort: 8888
               name: hls-tcp
               protocol: TCP
             # WebRTC UDP ICE direct hostPort (avoids Kube-proxy UDP NAT drops)

@@ -49,4 +49,4 @@ data:
 
     # Path template for all camera streams
     paths:
-      all:
+      all_others: {}
