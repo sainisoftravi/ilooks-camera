@@ -155,24 +155,36 @@ class StreamPipeline:
         t.start()
 
     def _run(self):
-        # Push directly from source RTSP to cloud with auto-reconnection
-        cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats",
-            "-rtsp_transport", "tcp",
-            "-reconnect", "1", "-reconnect_at_eof", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "2",
-            "-i", self.local_rtsp,
-            "-c", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", self.push_url
-        ]
+        time.sleep(1.5)
+        sources = [
+            f"rtsp://127.0.0.1:8556/{self.cam_uid}",
+            self.local_rtsp
+        ] if self.cam_uid else [self.local_rtsp]
+
         print(f"[iLooks-Connect] Outbound cloud relay started for {self.name} -> {self.push_url}")
         backoff = 2
+        src_idx = 0
         while self.running:
+            input_url = sources[src_idx % len(sources)]
+            cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats",
+                "-rtsp_transport", "tcp",
+                "-stimeout", "5000000",
+                "-i", input_url,
+                "-c", "copy",
+                "-f", "rtsp",
+                "-rtsp_transport", "tcp",
+                self.push_url
+            ]
             try:
                 self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                 _, stderr = self.process.communicate()
                 if self.running:
-                    print(f"[{self.name}] Stream connection dropped. Retrying in {backoff}s...")
+                    err_msg = stderr.strip().split("\n")[-1] if stderr else "Connection dropped"
+                    print(f"[{self.name}] Stream relay reconnecting in {backoff}s from {input_url}... ({err_msg})")
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 20)
+                    backoff = min(backoff * 2, 10)
+                    src_idx += 1
             except Exception as e:
                 print(f"[{self.name}] Relay error: {e}")
                 time.sleep(4)
