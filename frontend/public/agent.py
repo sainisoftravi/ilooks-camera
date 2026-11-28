@@ -169,7 +169,6 @@ class StreamPipeline:
             cmd = [
                 "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats",
                 "-rtsp_transport", "tcp",
-                "-stimeout", "5000000",
                 "-i", input_url,
                 "-c", "copy",
                 "-f", "rtsp",
