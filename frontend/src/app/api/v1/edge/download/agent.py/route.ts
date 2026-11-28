@@ -20,6 +20,15 @@ from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", os.path.join(os.path.dirname(__file__), "recordings"))

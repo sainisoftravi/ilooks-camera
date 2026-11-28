@@ -50,6 +50,7 @@ if command -v docker &> /dev/null; then
     echo "--> Docker detected. Building local client container..."
     cat << 'EOF' > Dockerfile
 FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates iproute2 && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests
