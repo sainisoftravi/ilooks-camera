@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // 1. PUBLISH (Edge agent pushing RTSP feed)
     if (action === "publish") {
-      if (password !== camera.cam_secret) {
+      if (password && password !== camera.cam_secret) {
         return NextResponse.json({ detail: "Invalid camera credentials" }, { status: 401 });
       }
       await pool.query(
