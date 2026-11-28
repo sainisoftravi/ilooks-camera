@@ -40,7 +40,7 @@ data:
     hlsAllowOrigins: ['*']
     hlsAlwaysRemux: yes
     hlsVariant: lowLatency
-    hlsSegmentCount: 3
+    hlsSegmentCount: 7
     hlsSegmentDuration: 1s
 
     # Disable unused protocols
