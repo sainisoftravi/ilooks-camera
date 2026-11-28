@@ -78,59 +78,45 @@ class LocalLoopRecorder:
             except Exception:
                 pass
 
-# --- 2. LOCAL MEDIAMTX EMBEDDED ENGINE (RTSP :8556, WHEP :8889, HLS :8888) ---
-class LocalMediaMTXManager:
+# --- 2. LOCAL GO2RTC STREAM ENGINE (WebUI/MSE/WebRTC :1984, RTSP :8556) ---
+class LocalEngineManager:
     def __init__(self, config_dir):
         self.config_dir = config_dir
-        self.config_path = os.path.join(config_dir, "mediamtx_local.yml")
+        self.config_path = os.path.join(config_dir, "go2rtc.yaml")
         self.process = None
-        self.bin_path = shutil.which("mediamtx") or ("/usr/local/bin/mediamtx" if os.path.exists("/usr/local/bin/mediamtx") else None)
+        self.bin_path = shutil.which("go2rtc") or ("/usr/local/bin/go2rtc" if os.path.exists("/usr/local/bin/go2rtc") else None)
 
     def is_available(self):
         return bool(self.bin_path and os.path.exists(self.bin_path))
 
     def generate_config(self, cameras):
         lines = [
-            "logLevel: info",
-            "logDestinations: [stdout]",
-            "# Local Ingestion & Playback Ports",
-            "rtsp: yes",
-            "rtspAddress: :8556",
-            "rtspTransports: [tcp]",
-            "webrtc: yes",
-            "webrtcAddress: :8889",
-            "webrtcAllowOrigins: ['*']",
-            "webrtcEncryption: no",
-            "webrtcICEServers2:",
-            "  - url: stun:stun.l.google.com:19302",
-            "  - url: stun:stun1.l.google.com:19302",
-            "hls: yes",
-            "hlsAddress: :8888",
-            "hlsAllowOrigins: ['*']",
-            "hlsAlwaysRemux: yes",
-            "hlsVariant: lowLatency",
-            "hlsSegmentCount: 3",
-            "hlsSegmentDuration: 1s",
-            "api: yes",
-            "apiAddress: :9997",
-            "paths:",
+            "# go2rtc - Ultra-Low-Latency Camera Gateway (AlexxIT)",
+            "api:",
+            "  listen: \":1984\"",
+            "rtsp:",
+            "  listen: \":8556\"",
+            "webrtc:",
+            "  listen: \":8555\"",
+            "  candidates:",
+            "    - stun:stun.l.google.com:19302",
+            "    - stun:stun1.l.google.com:19302",
+            "streams:",
         ]
         valid_cams = [c for c in cameras if c.get("rtsp_source_url")]
         if not valid_cams:
-            lines.append("  all:")
+            lines.append("  {}")
         else:
             for cam in valid_cams:
                 cam_key = cam.get("cam_uid") or cam.get("camera_id") or "live"
                 rtsp = cam.get("rtsp_source_url")
                 lines.append(f"  {cam_key}:")
-                lines.append(f"    source: {rtsp}")
-                lines.append("    sourceOnDemand: no")
-                lines.append("    rtspTransport: tcp")
+                lines.append(f"    - \"{rtsp}\"")
         return "\n".join(lines) + "\n"
 
     def restart(self, cameras):
         if not self.is_available():
-            print("[Local MediaMTX] Binary not detected in PATH. Running with direct FFmpeg loop.")
+            print("[go2rtc] Binary not found. Running with direct FFmpeg loop.")
             return
         os.makedirs(self.config_dir, exist_ok=True)
         with open(self.config_path, "w") as f:
@@ -139,17 +125,19 @@ class LocalMediaMTXManager:
         if self.process:
             try:
                 self.process.terminate()
-                self.process.wait(timeout=3)
+                self.process.wait(timeout=2)
             except Exception:
                 try: self.process.kill()
                 except Exception: pass
 
-        cmd = [self.bin_path, self.config_path]
+        cmd = [self.bin_path, "-config", self.config_path]
         try:
             self.process = subprocess.Popen(cmd)
-            print("[Local MediaMTX] Active on RTSP :8556, WebRTC :8889 (STUN Enabled), HLS :8888")
+            print("[go2rtc] Started successfully!")
+            print("[go2rtc] Local Web Console & MSE Player: http://127.0.0.1:1984")
+            print("[go2rtc] Local RTSP loopback: rtsp://127.0.0.1:8556")
         except Exception as e:
-            print(f"[Local MediaMTX] Start error: {e}")
+            print(f"[go2rtc] Start error: {e}")
 
 # --- 3. OUTBOUND CLOUD STREAM PIPELINE ---
 class StreamPipeline:
@@ -269,7 +257,7 @@ class StandaloneEdgeAgent:
         self.node_id = None
         self.pipelines = {}
         self.recorders = {}
-        self.mtx = LocalMediaMTXManager(DATA_DIR)
+        self.engine = LocalEngineManager(DATA_DIR)
         self.config = self.load_config()
 
     def load_config(self):
@@ -372,8 +360,8 @@ class StandaloneEdgeAgent:
         self.config["cameras"].append(cam_info)
         self.save_config()
 
-        # 1. Update and restart local MediaMTX engine for zero-latency local playback
-        self.mtx.restart(self.config["cameras"])
+        # 1. Update and restart local go2rtc engine for zero-latency local playback
+        self.engine.restart(self.config["cameras"])
 
         # 2. Start Outbound Cloud Relay
         p = StreamPipeline(name, rtsp_url, reg["rtsp_push_url"], cam_uid=reg["cam_uid"])
@@ -402,8 +390,8 @@ class StandaloneEdgeAgent:
             except Exception as e:
                 print(f"[iLooks-Connect] Auto-attach camera error: {e}")
 
-        # Start Local MediaMTX for existing cameras
-        self.mtx.restart(self.config.get("cameras", []))
+        # Start Local go2rtc for existing cameras
+        self.engine.restart(self.config.get("cameras", []))
 
         for cam in self.config.get("cameras", []):
             p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"], cam_uid=cam.get("cam_uid"))
@@ -630,7 +618,6 @@ class LocalWebHandler(BaseHTTPRequestHandler):
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <button type="button" onclick="toggleLocalMode('{c.get('cam_uid', 'live')}')" id="mode-{c.get('cam_uid', 'live')}" class="px-2 py-0.5 rounded-full text-[10px] font-bold border border-gray-700 bg-gray-900/90 text-gray-300 hover:text-white" title="Switch WebRTC / HLS">⚡ WebRTC</button>
               <span class="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live & Recording
               </span>
@@ -638,15 +625,18 @@ class LocalWebHandler(BaseHTTPRequestHandler):
           </div>
 
           <div class="space-y-1.5 text-xs">
-            <!-- Local Live Video Player (MediaMTX WebRTC & HLS) -->
+            <!-- Local Live Video Player (Powered by go2rtc) -->
             <div class="relative aspect-video bg-black rounded-xl overflow-hidden border border-gray-800 shadow-inner group">
-              <video id="player-{c.get('cam_uid', 'live')}" autoplay playsinline muted controls class="w-full h-full object-contain bg-black"></video>
+              <iframe id="iframe-{c.get('cam_uid', 'live')}"
+                      class="w-full h-full border-0 bg-black"
+                      allow="autoplay; fullscreen; picture-in-picture"></iframe>
               <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-500/40 text-[10px] font-bold text-emerald-400 backdrop-blur-sm pointer-events-none">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> LOCAL LIVE
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> GO2RTC LIVE
               </div>
-              <button onclick="startLocalPlayer('{c.get('cam_uid', 'live')}')" class="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-gray-900/80 hover:bg-gray-800 text-gray-300 text-xs border border-gray-700 backdrop-blur-sm" title="Reload Local Stream">
-                <i class="fa-solid fa-rotate-right"></i>
-              </button>
+              <a id="link-{c.get('cam_uid', 'live')}" target="_blank" class="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-gray-900/90 hover:bg-gray-800 text-gray-300 text-[10px] font-bold border border-gray-700 backdrop-blur-sm flex items-center gap-1" title="Open go2rtc Web Console">
+                <span>go2rtc :1984</span>
+                <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+              </a>
             </div>
 
             <div class="bg-gray-950 p-2 rounded-lg border border-gray-800/80">
@@ -728,86 +718,14 @@ class LocalWebHandler(BaseHTTPRequestHandler):
       window.scrollTo({{ top: document.body.scrollHeight / 2, behavior: 'smooth' }});
     }}
 
-    const activeLocalPCs = {{}};
-    const activeLocalHls = {{}};
-
-    function startLocalPlayer(camUid, forceMode = null) {{
-      const video = document.getElementById("player-" + camUid);
-      const btn = document.getElementById("mode-" + camUid);
-      if (!video) return;
-
-      const host = window.location.hostname || "127.0.0.1";
-      const whepUrl = "http://" + host + ":8889/" + camUid + "/whep";
-      const hlsUrl = "http://" + host + ":8888/" + camUid + "/index.m3u8";
-
-      // Cleanup existing
-      if (activeLocalPCs[camUid]) {{
-        activeLocalPCs[camUid].close();
-        delete activeLocalPCs[camUid];
-      }}
-      if (activeLocalHls[camUid]) {{
-        activeLocalHls[camUid].destroy();
-        delete activeLocalHls[camUid];
-      }}
-
-      if (forceMode === "hls") {{
-        if (btn) btn.innerText = "📺 HLS";
-        if (window.Hls && Hls.isSupported()) {{
-          const hls = new Hls({{ enableWorker: true, lowLatencyMode: true }});
-          activeLocalHls[camUid] = hls;
-          hls.loadSource(hlsUrl);
-          hls.attachMedia(video);
-        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-          video.src = hlsUrl;
-        }}
-        return;
-      }}
-
-      // 1. Ultra-low-latency WebRTC WHEP negotiation with Google STUN
-      if (btn) btn.innerText = "⚡ WebRTC";
-      const pc = new RTCPeerConnection({{
-        iceServers: [
-          {{ urls: "stun:stun.l.google.com:19302" }},
-          {{ urls: "stun:stun1.l.google.com:19302" }}
-        ]
-      }});
-      activeLocalPCs[camUid] = pc;
-      pc.addTransceiver('video', {{ direction: 'recvonly' }});
-      pc.addTransceiver('audio', {{ direction: 'recvonly' }});
-      pc.ontrack = (ev) => {{
-        if (ev.streams[0]) {{
-          video.srcObject = ev.streams[0];
-        }}
-      }};
-
-      pc.createOffer().then(offer => {{
-        pc.setLocalDescription(offer);
-        return fetch(whepUrl, {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/sdp" }},
-          body: offer.sdp
-        }});
-      }}).then(res => {{
-        if (!res.ok) throw new Error("WHEP error " + res.status);
-        return res.text();
-      }}).then(sdp => {{
-        pc.setRemoteDescription({{ type: 'answer', sdp: sdp }});
-      }}).catch(() => {{
-        // Auto failover to HLS if WebRTC fails
-        startLocalPlayer(camUid, "hls");
-      }});
-    }}
-
-    function toggleLocalMode(camUid) {{
-      const btn = document.getElementById("mode-" + camUid);
-      const isCurrentlyWebRTC = btn && btn.innerText.includes("WebRTC");
-      startLocalPlayer(camUid, isCurrentlyWebRTC ? "hls" : "webrtc");
-    }}
-
     document.addEventListener("DOMContentLoaded", () => {{
-      document.querySelectorAll("video[id^='player-']").forEach(v => {{
-        const uid = v.id.replace("player-", "");
-        startLocalPlayer(uid);
+      const host = window.location.hostname || "127.0.0.1";
+      document.querySelectorAll("iframe[id^='iframe-']").forEach(iframe => {{
+        const uid = iframe.id.replace("iframe-", "");
+        iframe.src = "http://" + host + ":1984/stream.html?src=" + uid + "&mode=webrtc,mse,hls";
+      }});
+      document.querySelectorAll("a[id^='link-']").forEach(link => {{
+        link.href = "http://" + host + ":1984";
       }});
     }});
   </script>
@@ -859,7 +777,7 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 if cam_id in agent.recorders:
                     agent.recorders[cam_id].stop()
                     del agent.recorders[cam_id]
-                agent.mtx.restart(agent.config["cameras"])
+                agent.engine.restart(agent.config["cameras"])
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
