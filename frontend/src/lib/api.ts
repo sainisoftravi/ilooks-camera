@@ -34,6 +34,23 @@ function getAuthHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function handleResponse(res: Response, fallbackMsg: string) {
+  if (!res.ok) {
+    let detail = fallbackMsg;
+    try {
+      const err = await res.json();
+      detail = err.detail || fallbackMsg;
+    } catch {
+      try {
+        const text = await res.text();
+        detail = text || `${fallbackMsg} (HTTP ${res.status})`;
+      } catch {}
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
 export const api = {
   // Auth
   async signup(data: { email: string; password: string; full_name?: string }) {
@@ -42,8 +59,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error((await res.json()).detail || "Signup failed");
-    return res.json();
+    return handleResponse(res, "Signup failed");
   },
 
   async login(data: { email: string; password: string }) {
@@ -52,16 +68,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error((await res.json()).detail || "Login failed");
-    return res.json();
+    return handleResponse(res, "Login failed");
   },
 
   async getMe(): Promise<User> {
     const res = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: { ...getAuthHeader() },
     });
-    if (!res.ok) throw new Error("Unauthorized");
-    return res.json();
+    return handleResponse(res, "Unauthorized");
   },
 
   // Cameras
@@ -69,26 +83,23 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/cameras`, {
       headers: { ...getAuthHeader() },
     });
-    if (!res.ok) throw new Error("Failed to load cameras");
-    return res.json();
+    return handleResponse(res, "Failed to load cameras");
   },
 
   async createDirectCamera(data: { name: string; rtsp_source_url?: string }): Promise<Camera> {
-    const res = await fetch(`${API_BASE_URL}/cameras/direct`, {
+    const res = await fetch(`${API_BASE_URL}/cameras`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error((await res.json()).detail || "Failed to add camera");
-    return res.json();
+    return handleResponse(res, "Failed to add camera");
   },
 
   async getPlaybackAuth(cameraId: string): Promise<PlaybackAuth> {
     const res = await fetch(`${API_BASE_URL}/cameras/${cameraId}/playback`, {
       headers: { ...getAuthHeader() },
     });
-    if (!res.ok) throw new Error("Failed to get playback authorization");
-    return res.json();
+    return handleResponse(res, "Failed to get playback authorization");
   },
 
   async deleteCamera(cameraId: string) {
@@ -96,8 +107,7 @@ export const api = {
       method: "DELETE",
       headers: { ...getAuthHeader() },
     });
-    if (!res.ok) throw new Error("Failed to delete camera");
-    return res.json();
+    return handleResponse(res, "Failed to delete camera");
   },
 
   // Edge Pairing
@@ -107,15 +117,13 @@ export const api = {
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify({ node_name: nodeName }),
     });
-    if (!res.ok) throw new Error("Failed to generate pairing code");
-    return res.json();
+    return handleResponse(res, "Failed to generate pairing code");
   },
 
   async checkPairStatus(code: string) {
     const res = await fetch(`${API_BASE_URL}/edge/pair/status/${code}`, {
       headers: { ...getAuthHeader() },
     });
-    if (!res.ok) throw new Error("Failed to check pairing status");
-    return res.json();
+    return handleResponse(res, "Failed to check pairing status");
   },
 };

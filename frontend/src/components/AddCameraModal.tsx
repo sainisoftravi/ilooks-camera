@@ -35,10 +35,15 @@ export default function AddCameraModal({
     setLoading(true);
     setError("");
 
+    let formattedRtsp = rtspUrl.trim();
+    if (formattedRtsp && !formattedRtsp.startsWith("rtsp://") && !formattedRtsp.startsWith("rtsps://")) {
+      formattedRtsp = `rtsp://${formattedRtsp}`;
+    }
+
     try {
       const cam = await api.createDirectCamera({
         name: name.trim(),
-        rtsp_source_url: rtspUrl.trim() || undefined,
+        rtsp_source_url: formattedRtsp || undefined,
       });
       setCreatedCam(cam);
       onCameraAdded(cam);
