@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const MEDIAMTX_INTERNAL = process.env.MEDIAMTX_INTERNAL_URL || "http://ilook-media-gateway.ilook-system.svc.cluster.local:8889";
+const MEDIAMTX_INTERNAL = process.env.MEDIAMTX_INTERNAL_URL || "http://ilook-media-gateway.ilook-system.svc.cluster.local:1984";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { path: string[] } }
 ) {
   try {
-    const subpath = (params.path || []).join("/");
+    const rawPath = params.path || [];
+    const camUid = rawPath[0] || "";
     const url = new URL(req.url);
-    const targetUrl = `${MEDIAMTX_INTERNAL}/${subpath}${url.search}`;
+
+    // Support go2rtc WebRTC (/api/webrtc?src=CAM_UID) with fallback to raw subpath
+    const targetUrl = camUid
+      ? `${MEDIAMTX_INTERNAL}/api/webrtc?src=${camUid}`
+      : `${MEDIAMTX_INTERNAL}/${rawPath.join("/")}${url.search}`;
 
     const sdpOffer = await req.text();
 

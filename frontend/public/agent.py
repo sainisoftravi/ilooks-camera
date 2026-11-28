@@ -405,13 +405,15 @@ class StandaloneEdgeAgent:
         self.engine.restart(self.config.get("cameras", []))
 
         for cam in self.config.get("cameras", []):
-            p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"], cam_uid=cam.get("cam_uid"))
-            self.pipelines[cam["camera_id"]] = p
-            p.start()
+            cid = cam.get("camera_id")
+            if cid not in self.pipelines:
+                p = StreamPipeline(cam["name"], cam["rtsp_source_url"], cam["rtsp_push_url"], cam_uid=cam.get("cam_uid"))
+                self.pipelines[cid] = p
+                p.start()
 
-            if self.config.get("local_recording", True):
+            if self.config.get("local_recording", True) and cid not in self.recorders:
                 rec = LocalLoopRecorder(cam["cam_uid"], cam["name"], cam["rtsp_source_url"])
-                self.recorders[cam["camera_id"]] = rec
+                self.recorders[cid] = rec
                 rec.start()
 
 # --- 5. LOCAL BROWSER SETUP WIZARD (http://localhost:8090) ---

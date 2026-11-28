@@ -21,7 +21,7 @@ spec:
         kubernetes.io/arch: arm64
       containers:
         - name: mediamtx
-          image: bluenviron/mediamtx:1-ffmpeg
+          image: alexxit/go2rtc:latest
           imagePullPolicy: IfNotPresent
           resources:
             requests:
@@ -36,24 +36,20 @@ spec:
               hostPort: 8554
               name: rtsp-tcp
               protocol: TCP
-            # WebRTC WHEP signaling direct hostPort
-            - containerPort: 8889
-              hostPort: 8889
-              name: whep-tcp
+            # go2rtc API & WHEP / MSE HTTP streaming port
+            - containerPort: 1984
+              hostPort: 1984
+              name: api-tcp
               protocol: TCP
-            # HLS HTTP streaming port
-            - containerPort: 8888
-              name: hls-tcp
-              protocol: TCP
-            # WebRTC UDP ICE direct hostPort (avoids Kube-proxy UDP NAT drops)
-            - containerPort: 8189
-              hostPort: 8189
+            # WebRTC UDP ICE direct hostPort
+            - containerPort: 8555
+              hostPort: 8555
               name: webrtc-udp
               protocol: UDP
           volumeMounts:
             - name: config-volume
-              mountPath: /mediamtx.yml
-              subPath: mediamtx.yml
+              mountPath: /config/go2rtc.yaml
+              subPath: go2rtc.yaml
           readinessProbe:
             tcpSocket:
               port: 8554
@@ -83,15 +79,23 @@ spec:
       port: 8554
       targetPort: 8554
       protocol: TCP
+    - name: api
+      port: 1984
+      targetPort: 1984
+      protocol: TCP
     - name: whep
       port: 8889
-      targetPort: 8889
+      targetPort: 1984
       protocol: TCP
     - name: hls
       port: 8888
-      targetPort: 8888
+      targetPort: 1984
       protocol: TCP
     - name: webrtc-ice
+      port: 8555
+      targetPort: 8555
+      protocol: UDP
+    - name: webrtc-ice-legacy
       port: 8189
-      targetPort: 8189
+      targetPort: 8555
       protocol: UDP

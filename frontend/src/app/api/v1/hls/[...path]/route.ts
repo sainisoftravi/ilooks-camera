@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const MEDIAMTX_HLS_INTERNAL = process.env.MEDIAMTX_HLS_INTERNAL_URL || "http://ilook-media-gateway.ilook-system.svc.cluster.local:8888";
+const MEDIAMTX_HLS_INTERNAL = process.env.MEDIAMTX_HLS_INTERNAL_URL || "http://ilook-media-gateway.ilook-system.svc.cluster.local:1984";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { path: string[] } }
 ) {
   try {
-    const subpath = (params.path || []).join("/");
-    const url = new URL(req.url);
-    const targetUrl = `${MEDIAMTX_HLS_INTERNAL}/${subpath}${url.search}`;
+    const rawPath = params.path || [];
+    const camUid = rawPath[0] || "";
+    const subpath = rawPath.join("/");
+
+    // Support go2rtc HLS (/api/stream.m3u8?src=CAM_UID) with fallback
+    const targetUrl = camUid
+      ? `${MEDIAMTX_HLS_INTERNAL}/api/stream.m3u8?src=${camUid}`
+      : `${MEDIAMTX_HLS_INTERNAL}/${subpath}`;
 
     const mtxRes = await fetch(targetUrl, {
       method: "GET",

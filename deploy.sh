@@ -35,7 +35,7 @@ echo -e "${GREEN}[✓] Using Kubernetes CLI: ${KUBECTL_CMD}${NC}"
 # 2. Host Firewall Setup (Ubuntu iptables on OCI)
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}--> Step 1: Checking and configuring host firewall rules...${NC}"
-for PORT in "8554:tcp" "8889:tcp" "8189:udp" "443:tcp"; do
+for PORT in "8554:tcp" "1984:tcp" "8889:tcp" "8555:udp" "8189:udp" "443:tcp"; do
     NUM=$(echo $PORT | cut -d: -f1)
     PROTO=$(echo $PORT | cut -d: -f2)
     if ! sudo iptables -C INPUT -p $PROTO --dport $NUM -j ACCEPT 2>/dev/null; then
