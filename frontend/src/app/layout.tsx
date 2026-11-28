@@ -20,6 +20,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <head>
         <link rel="icon" href="/logo-icon.png" />
+        <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
       </head>
       <body className="bg-[#070A0F] text-gray-100 min-h-screen antialiased">
         {children}

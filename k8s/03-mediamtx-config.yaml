@@ -29,10 +29,22 @@ data:
     webrtcAllowOrigins: ['*']
     webrtcAdditionalHosts: ['stream.labstackops.top']
     webrtcICEUDPMuxAddress: :8189
+    webrtcICEServers2:
+      - url: stun:stun.l.google.com:19302
+      - url: stun:stun1.l.google.com:19302
+      - url: stun:stun2.l.google.com:19302
+
+    # Universal Low-Latency HLS Server
+    hls: yes
+    hlsAddress: :8888
+    hlsAllowOrigins: ['*']
+    hlsAlwaysRemux: yes
+    hlsVariant: lowLatency
+    hlsSegmentCount: 3
+    hlsSegmentDuration: 1s
 
     # Disable unused protocols
     rtmp: no
-    hls: no
     srt: no
 
     # Path template for all camera streams

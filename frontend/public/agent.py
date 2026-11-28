@@ -91,7 +91,7 @@ class LocalMediaMTXManager:
 
     def generate_config(self, cameras):
         lines = [
-            "logLevel: warn",
+            "logLevel: info",
             "logDestinations: [stdout]",
             "# Local Ingestion & Playback Ports",
             "rtsp: yes",
@@ -101,18 +101,27 @@ class LocalMediaMTXManager:
             "webrtcAddress: :8889",
             "webrtcAllowOrigins: ['*']",
             "webrtcEncryption: no",
+            "webrtcICEServers2:",
+            "  - url: stun:stun.l.google.com:19302",
+            "  - url: stun:stun1.l.google.com:19302",
             "hls: yes",
             "hlsAddress: :8888",
             "hlsAllowOrigins: ['*']",
+            "hlsAlwaysRemux: yes",
+            "hlsVariant: lowLatency",
+            "hlsSegmentCount: 3",
+            "hlsSegmentDuration: 1s",
             "api: yes",
             "apiAddress: :9997",
             "paths:",
-            "  all:",
         ]
-        for cam in cameras:
-            cam_key = cam.get("cam_uid") or cam.get("camera_id") or "live"
-            rtsp = cam.get("rtsp_source_url")
-            if rtsp:
+        valid_cams = [c for c in cameras if c.get("rtsp_source_url")]
+        if not valid_cams:
+            lines.append("  all:")
+        else:
+            for cam in valid_cams:
+                cam_key = cam.get("cam_uid") or cam.get("camera_id") or "live"
+                rtsp = cam.get("rtsp_source_url")
                 lines.append(f"  {cam_key}:")
                 lines.append(f"    source: {rtsp}")
                 lines.append("    sourceOnDemand: no")
@@ -137,8 +146,8 @@ class LocalMediaMTXManager:
 
         cmd = [self.bin_path, self.config_path]
         try:
-            self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("[Local MediaMTX] Active on RTSP :8556, WebRTC :8889, HLS :8888, API :9997")
+            self.process = subprocess.Popen(cmd)
+            print("[Local MediaMTX] Active on RTSP :8556, WebRTC :8889 (STUN Enabled), HLS :8888")
         except Exception as e:
             print(f"[Local MediaMTX] Start error: {e}")
 
@@ -158,13 +167,12 @@ class StreamPipeline:
         t.start()
 
     def _run(self):
-        # Prefer local MediaMTX loopback if available, else direct camera RTSP
-        input_url = f"rtsp://127.0.0.1:8556/{self.cam_uid}" if (self.cam_uid and shutil.which("mediamtx")) else self.local_rtsp
+        # Push directly from source RTSP to cloud with auto-reconnection
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats",
             "-rtsp_transport", "tcp",
             "-reconnect", "1", "-reconnect_at_eof", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "2",
-            "-i", input_url,
+            "-i", self.local_rtsp,
             "-c", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", self.push_url
         ]
         print(f"[iLooks-Connect] Outbound cloud relay started for {self.name} -> {self.push_url}")
@@ -621,9 +629,12 @@ class LocalWebHandler(BaseHTTPRequestHandler):
                 <span class="text-[10px] text-gray-500 font-mono">UID: {c.get("cam_uid", "Local")}</span>
               </div>
             </div>
-            <span class="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live & Recording
-            </span>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="toggleLocalMode('{c.get('cam_uid', 'live')}')" id="mode-{c.get('cam_uid', 'live')}" class="px-2 py-0.5 rounded-full text-[10px] font-bold border border-gray-700 bg-gray-900/90 text-gray-300 hover:text-white" title="Switch WebRTC / HLS">⚡ WebRTC</button>
+              <span class="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live & Recording
+              </span>
+            </div>
           </div>
 
           <div class="space-y-1.5 text-xs">
@@ -717,16 +728,50 @@ class LocalWebHandler(BaseHTTPRequestHandler):
       window.scrollTo({{ top: document.body.scrollHeight / 2, behavior: 'smooth' }});
     }}
 
-    function startLocalPlayer(camUid) {{
+    const activeLocalPCs = {{}};
+    const activeLocalHls = {{}};
+
+    function startLocalPlayer(camUid, forceMode = null) {{
       const video = document.getElementById("player-" + camUid);
+      const btn = document.getElementById("mode-" + camUid);
       if (!video) return;
 
       const host = window.location.hostname || "127.0.0.1";
       const whepUrl = "http://" + host + ":8889/" + camUid + "/whep";
       const hlsUrl = "http://" + host + ":8888/" + camUid + "/index.m3u8";
 
-      // 1. Ultra-low-latency WebRTC WHEP negotiation
-      const pc = new RTCPeerConnection();
+      // Cleanup existing
+      if (activeLocalPCs[camUid]) {{
+        activeLocalPCs[camUid].close();
+        delete activeLocalPCs[camUid];
+      }}
+      if (activeLocalHls[camUid]) {{
+        activeLocalHls[camUid].destroy();
+        delete activeLocalHls[camUid];
+      }}
+
+      if (forceMode === "hls") {{
+        if (btn) btn.innerText = "📺 HLS";
+        if (window.Hls && Hls.isSupported()) {{
+          const hls = new Hls({{ enableWorker: true, lowLatencyMode: true }});
+          activeLocalHls[camUid] = hls;
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+          video.src = hlsUrl;
+        }}
+        return;
+      }}
+
+      // 1. Ultra-low-latency WebRTC WHEP negotiation with Google STUN
+      if (btn) btn.innerText = "⚡ WebRTC";
+      const pc = new RTCPeerConnection({{
+        iceServers: [
+          {{ urls: "stun:stun.l.google.com:19302" }},
+          {{ urls: "stun:stun1.l.google.com:19302" }}
+        ]
+      }});
+      activeLocalPCs[camUid] = pc;
       pc.addTransceiver('video', {{ direction: 'recvonly' }});
       pc.addTransceiver('audio', {{ direction: 'recvonly' }});
       pc.ontrack = (ev) => {{
@@ -748,15 +793,15 @@ class LocalWebHandler(BaseHTTPRequestHandler):
       }}).then(sdp => {{
         pc.setRemoteDescription({{ type: 'answer', sdp: sdp }});
       }}).catch(() => {{
-        // 2. Universal HLS Fallback
-        if (window.Hls && Hls.isSupported()) {{
-          const hls = new Hls({{ enableWorker: true, lowLatencyMode: true }});
-          hls.loadSource(hlsUrl);
-          hls.attachMedia(video);
-        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-          video.src = hlsUrl;
-        }}
+        // Auto failover to HLS if WebRTC fails
+        startLocalPlayer(camUid, "hls");
       }});
+    }}
+
+    function toggleLocalMode(camUid) {{
+      const btn = document.getElementById("mode-" + camUid);
+      const isCurrentlyWebRTC = btn && btn.innerText.includes("WebRTC");
+      startLocalPlayer(camUid, isCurrentlyWebRTC ? "hls" : "webrtc");
     }}
 
     document.addEventListener("DOMContentLoaded", () => {{

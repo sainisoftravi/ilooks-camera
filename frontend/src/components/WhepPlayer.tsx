@@ -28,18 +28,61 @@ export default function WhepPlayer({ camera, onDelete }: WhepPlayerProps) {
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
+  const [protocolMode, setProtocolMode] = useState<"webrtc" | "hls">("webrtc");
+  const hlsRef = useRef<any>(null);
 
   const cleanupConnection = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.src = "";
     }
   }, []);
 
+  const startHlsSession = useCallback(() => {
+    cleanupConnection();
+    setStatus("connecting");
+    setErrorMessage("");
+    setProtocolMode("hls");
+    const hlsUrl = `/api/v1/hls/${camera.cam_uid}/index.m3u8`;
+
+    if (typeof window !== "undefined" && (window as any).Hls && (window as any).Hls.isSupported()) {
+      const Hls = (window as any).Hls;
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hlsRef.current = hls;
+      hls.loadSource(hlsUrl);
+      if (videoRef.current) {
+        hls.attachMedia(videoRef.current);
+      }
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus("live");
+      });
+      hls.on(Hls.Events.ERROR, (_: any, data: any) => {
+        if (data.fatal) {
+          setStatus("offline");
+          setErrorMessage("HLS feed buffering or offline");
+        }
+      });
+    } else if (videoRef.current && videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
+      videoRef.current.src = hlsUrl;
+      videoRef.current.onloadedmetadata = () => setStatus("live");
+      videoRef.current.onerror = () => setStatus("offline");
+    }
+  }, [camera.cam_uid, cleanupConnection]);
+
   const startWhepSession = useCallback(async () => {
+    if (protocolMode === "hls") {
+      startHlsSession();
+      return;
+    }
+
     cleanupConnection();
     setStatus("connecting");
     setErrorMessage("");
@@ -49,11 +92,12 @@ export default function WhepPlayer({ camera, onDelete }: WhepPlayerProps) {
       const auth = await api.getPlaybackAuth(camera.id);
       const whepUrl = auth.whep_url;
 
-      // 2. Initialize RTCPeerConnection with STUN servers
+      // 2. Initialize RTCPeerConnection with Google STUN servers
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" }
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" }
         ],
         bundlePolicy: "max-bundle",
       });
@@ -212,6 +256,24 @@ export default function WhepPlayer({ camera, onDelete }: WhepPlayerProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Protocol Switcher Pill (WebRTC / HLS) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (protocolMode === "webrtc") {
+                startHlsSession();
+              } else {
+                setProtocolMode("webrtc");
+                startWhepSession();
+              }
+            }}
+            className="pointer-events-auto px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors flex items-center gap-1 bg-gray-900/90 hover:bg-gray-800 border-gray-700 text-gray-300 hover:text-white"
+            title="Switch between WebRTC (Ultra Low Latency) and HLS (High Stability)"
+          >
+            {protocolMode === "webrtc" ? "⚡ WebRTC" : "📺 HLS"}
+          </button>
+
           {status === "live" && (
             <>
               {latencyMs !== null && (

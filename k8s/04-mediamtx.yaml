@@ -41,6 +41,11 @@ spec:
               hostPort: 8889
               name: whep-tcp
               protocol: TCP
+            # HLS HTTP streaming port
+            - containerPort: 8888
+              hostPort: 8888
+              name: hls-tcp
+              protocol: TCP
             # WebRTC UDP ICE direct hostPort (avoids Kube-proxy UDP NAT drops)
             - containerPort: 8189
               hostPort: 8189
@@ -82,6 +87,10 @@ spec:
     - name: whep
       port: 8889
       targetPort: 8889
+      protocol: TCP
+    - name: hls
+      port: 8888
+      targetPort: 8888
       protocol: TCP
     - name: webrtc-ice
       port: 8189
